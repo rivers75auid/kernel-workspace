@@ -13,8 +13,10 @@ if [ "$ENABLE_KSU" = "true" ]; then
     echo "===> Mengintegrasikan KernelSU-Next (Legacy Branch v3.4.0 untuk Non-GKI 4.19)..."
     git clone --depth=1 -b v3.4.0-legacy https://github.com/KernelSU-Next/KernelSU-Next.git "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next"
 
-    mkdir -p drivers/kernelsu
-    ln -sfn ../KernelSU-Next/kernel drivers/kernelsu
+    rm -rf drivers/kernelsu
+    ln -sfn "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next/kernel" drivers/kernelsu
+    test -f drivers/kernelsu/Kconfig || { echo "[-] ERROR: drivers/kernelsu/Kconfig does not exist!"; ls -la drivers/kernelsu; exit 1; }
+    echo "[+] Verified drivers/kernelsu/Kconfig exists."
     grep -q "kernelsu" drivers/Makefile || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> drivers/Makefile
     grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 

@@ -221,27 +221,13 @@ jobs:
           KNAME="${{ github.event.inputs.KERNEL_NAME }}"
           [ -z "$KNAME" ] && KNAME="Kairos"
 
-          # Konfigurasi perangkat Redmi 10C (fog, wind, rain)
-          sed -i "s/kernel.string=.*/kernel.string=${KNAME} Kernel for Redmi 10C (fog)/" anykernel.sh
-          sed -i 's/device.name1=.*/device.name1=fog/' anykernel.sh
-          sed -i 's/device.name2=.*/device.name2=wind/' anykernel.sh
-          sed -i 's/device.name3=.*/device.name3=rain/' anykernel.sh
-          sed -i 's/device.name4=.*/device.name4=sm6225/' anykernel.sh
-          sed -i 's/is_slot_device=0;/is_slot_device=auto;/' anykernel.sh
+          # Terapkan anykernel.sh terkonfigurasi khusus Redmi 10C (BLOCK=boot & slot auto)
+          cp "$GITHUB_WORKSPACE/configs/anykernel.sh" .
+          sed -i "s/Kairos/${KNAME}/g" anykernel.sh
 
           # Salin file script runtime Godmode Potato optimizer mandiri
           cp "$GITHUB_WORKSPACE/scripts/99-godmode-potato-fog.sh" .
           chmod 755 99-godmode-potato-fog.sh
-
-          # Tambahkan injeksi script ke anykernel.sh
-          echo "" >> anykernel.sh
-          echo "# Injeksi script runtime Godmode Potato Suite untuk Android 16" >> anykernel.sh
-          echo 'if [ -d "/data/adb/service.d" ]; then' >> anykernel.sh
-          echo '  ui_print " "' >> anykernel.sh
-          echo '  ui_print "-> Injecting Godmode Potato Runtime Optimizer..."' >> anykernel.sh
-          echo '  cp -f "$home/99-godmode-potato-fog.sh" /data/adb/service.d/99-godmode-potato-fog.sh' >> anykernel.sh
-          echo '  chmod 755 /data/adb/service.d/99-godmode-potato-fog.sh' >> anykernel.sh
-          echo 'fi' >> anykernel.sh
 
           OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
 

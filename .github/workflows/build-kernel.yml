@@ -34,7 +34,7 @@ on:
         required: true
         default: 'v2.3.0'
       ENABLE_GODMODE_POTATO:
-        description: 'Enable Godmode Suite (FAS/UCLAMP, BFQ/Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)'
+        description: 'Enable Godmode Suite (WALT/Schedtune, Anxiety I/O, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)'
         required: true
         type: boolean
         default: true
@@ -92,7 +92,7 @@ jobs:
         run: |
           REPO="${{ github.event.inputs.KERNEL_REPO || 'alternoegraha/kernel_xiaomi_sm6225' }}"
           BRANCH="${{ github.event.inputs.KERNEL_BRANCH || 'fog' }}"
-          echo "===> Cloning Kernel Source from $REPO ($BRANCH)..."
+          echo "===> Cloning Canonical Kernel Source from $REPO ($BRANCH)..."
           git clone --depth=1 "https://github.com/$REPO.git" -b "$BRANCH" "$GITHUB_WORKSPACE/kernel_source"
 
       - name: Setup KernelSU-Next & SUSFS Patches
@@ -170,26 +170,28 @@ jobs:
           echo "CONFIG_LOCALVERSION=\"-${KNAME}\"" >> "$DEFCONFIG_PATH"
 
           if [ "$OPT_GOD" = "true" ]; then
-            echo "===> Mengaktifkan Godmode Potato Suite (UCLAMP, BFQ/Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
+            echo "===> Mengaktifkan Godmode Potato Suite (WALT/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
             cat << 'EOF' >> "$DEFCONFIG_PATH"
 
           # ==============================================================
-          # 1. CPU Scheduling, FAS / UCLAMP & Governor Foundation
+          # 1. CPU Scheduling: Qualcomm WALT & Schedtune Engine (SM6225)
           # ==============================================================
-          CONFIG_UCLAMP_TASK=y
-          CONFIG_UCLAMP_TASK_GROUP=y
-          CONFIG_UCLAMP_BUCKETS_COUNT=20
+          CONFIG_SCHED_WALT=y
+          CONFIG_SCHED_TUNE=y
+          CONFIG_SCHED_CORE_CTL=y
           CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+          # CONFIG_SCHEDSTATS is not set
 
           # ==============================================================
-          # 2. Storage I/O Optimization (BFQ & Anxiety Schedulers)
+          # 2. Storage I/O: Anxiety Flash Scheduler & BFQ Fallback
           # ==============================================================
+          CONFIG_IOSCHED_ANXIETY=y
           CONFIG_IOSCHED_BFQ=y
           CONFIG_BFQ_GROUP_IOSCHED=y
-          CONFIG_MQ_IOSCHED_DEADLINE=y
+          CONFIG_DEFAULT_IOSCHED="anxiety"
 
           # ==============================================================
-          # 3. Memory Subsystem (MGLRU, KSM, ZRAM DEDUP, Z3FOLD, ZSTD)
+          # 3. Memory Subsystem: MGLRU, KSM, ZRAM DEDUP, Z3FOLD, ZSTD (4GB RAM)
           # ==============================================================
           CONFIG_LRU_GEN=y
           CONFIG_LRU_GEN_ENABLED=y
@@ -287,7 +289,7 @@ jobs:
           done
 
           # ==============================================================
-          # 1. CPU Scheduling: FAS (Frame Aware Scheduling) & Schedutil
+          # 1. CPU Scheduling: Qualcomm WALT & Schedtune Engine (SM6225)
           # ==============================================================
           for gov in /sys/devices/system/cpu/cpufreq/policy*/schedutil; do
             [ -d "$gov" ] || continue
@@ -296,29 +298,31 @@ jobs:
             echo 1000 > "$gov/rate_limit_us" 2>/dev/null || true
           done
 
-          # UCLAMP (Per-Process Utilization Clamping)
-          # Top-App (UI & Game aktif): Kunci ke Core Big (A73) dengan minimum boost 20%
-          if [ -d "/dev/cpuset/top-app" ]; then
-            echo 0-7 > /dev/cpuset/top-app/cpus
-            echo 20 > /dev/cpuctl/top-app/uclamp.min 2>/dev/null || true
-            echo 100 > /dev/cpuctl/top-app/uclamp.max 2>/dev/null || true
-            echo 1 > /dev/cpuctl/top-app/uclamp.latency_sensitive 2>/dev/null || true
+          # Schedtune & WALT Boost untuk Kryo 265 Gold (4x A73)
+          if [ -d "/dev/stune/top-app" ]; then
+            echo 15 > /dev/stune/top-app/schedtune.boost 2>/dev/null || true
+            echo 1 > /dev/stune/top-app/schedtune.prefer_idle 2>/dev/null || true
           fi
-          # Background apps: Batasi keras ke Core Little (A53) & cap max 30%
+          if [ -d "/dev/stune/background" ]; then
+            echo 0 > /dev/stune/background/schedtune.boost 2>/dev/null || true
+            echo 0 > /dev/stune/background/schedtune.prefer_idle 2>/dev/null || true
+          fi
+          # Karantina Background Task ketat di Core Little A53 (0-3)
           if [ -d "/dev/cpuset/background" ]; then
-            echo 0-3 > /dev/cpuset/background/cpus
-            echo 0 > /dev/cpuctl/background/uclamp.min 2>/dev/null || true
-            echo 30 > /dev/cpuctl/background/uclamp.max 2>/dev/null || true
+            echo 0-3 > /dev/cpuset/background/cpus 2>/dev/null || true
+          fi
+          if [ -d "/dev/cpuset/top-app" ]; then
+            echo 0-7 > /dev/cpuset/top-app/cpus 2>/dev/null || true
           fi
 
           # ==============================================================
-          # 2. Storage I/O: BFQ / Anxiety Low-Latency + 512KB Read-Ahead
+          # 2. Storage I/O: Anxiety Flash Scheduler + 512KB Read-Ahead
           # ==============================================================
           for queue in /sys/block/*/queue; do
             [ -d "$queue" ] || continue
             if grep -q "anxiety" "$queue/scheduler"; then
               echo anxiety > "$queue/scheduler" 2>/dev/null || true
-            else
+            elif grep -q "bfq" "$queue/scheduler"; then
               echo bfq > "$queue/scheduler" 2>/dev/null || true
               echo 1 > "$queue/iosched/low_latency" 2>/dev/null || true
               echo 0 > "$queue/iosched/slice_idle" 2>/dev/null || true
@@ -345,7 +349,7 @@ jobs:
           fi
 
           # ==============================================================
-          # 5. ZRAM Dynamic Reallocation (4GB ZSTD, Prioritas Tinggi)
+          # 5. ZRAM Dynamic Reallocation (4GB ZSTD + DEDUP)
           # ==============================================================
           if [ -b "/dev/block/zram0" ]; then
             swapoff /dev/block/zram0 2>/dev/null || true

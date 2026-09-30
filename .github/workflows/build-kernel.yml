@@ -1,0 +1,230 @@
+name: Build Redmi 10C Kernel (KernelSU-Next + SUSFS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      KERNEL_REPO:
+        description: 'Kernel Source Repository (owner/repo)'
+        required: true
+        default: 'r0ddty/kernel_xiaomi_fog'
+      KERNEL_BRANCH:
+        description: 'Kernel Source Branch'
+        required: true
+        default: 'andromeda-mk2'
+      DEFCONFIG:
+        description: 'Defconfig name'
+        required: true
+        default: 'vendor/fog-perf_defconfig'
+      ENABLE_KSU_NEXT:
+        description: 'Integrate KernelSU-Next'
+        required: true
+        type: boolean
+        default: true
+      ENABLE_SUSFS:
+        description: 'Integrate SUSFS'
+        required: true
+        type: boolean
+        default: true
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '.github/workflows/build-kernel.yml'
+
+jobs:
+  build:
+    name: Compile Android Kernel
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Maximize Build Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+
+      - name: Checkout Builder Repo
+        uses: actions/checkout@v4
+
+      - name: Setup Build Environment & Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc \
+            bison \
+            build-essential \
+            ca-certificates \
+            ccache \
+            curl \
+            flex \
+            git \
+            libelf-dev \
+            libssl-dev \
+            lz4 \
+            python3 \
+            tar \
+            unzip \
+            wget \
+            xz-utils \
+            zip
+
+      - name: Download Proton Clang Toolchain
+        run: |
+          echo "===> Downloading Proton Clang 13..."
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git "$GITHUB_WORKSPACE/proton-clang"
+
+      - name: Clone Kernel Source
+        run: |
+          REPO="${{ github.event.inputs.KERNEL_REPO || 'r0ddty/kernel_xiaomi_fog' }}"
+          BRANCH="${{ github.event.inputs.KERNEL_BRANCH || 'andromeda-mk2' }}"
+          echo "===> Cloning Kernel Source from $REPO ($BRANCH)..."
+          git clone --depth=1 "https://github.com/$REPO.git" -b "$BRANCH" "$GITHUB_WORKSPACE/kernel_source"
+
+      - name: Setup KernelSU-Next & SUSFS Patches
+        run: |
+          cd "$GITHUB_WORKSPACE/kernel_source"
+
+          ENABLE_KSU="${{ github.event_name == 'push' && 'true' || github.event.inputs.ENABLE_KSU_NEXT }}"
+          ENABLE_SUS="${{ github.event_name == 'push' && 'true' || github.event.inputs.ENABLE_SUSFS }}"
+
+          if [ "$ENABLE_KSU" = "true" ]; then
+            echo "===> Inisialisasi KernelSU-Next..."
+            curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+
+            if [ "$ENABLE_SUS" = "true" ]; then
+              echo "===> Mengambil Patch SUSFS 4.19..."
+              git clone --depth=1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git "$GITHUB_WORKSPACE/susfs4ksu"
+
+              echo "===> Menerapkan source code SUSFS ke kernel..."
+              cp -r "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/fs"/* fs/
+              cp -r "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/include/linux"/* include/linux/
+
+              echo "===> Menerapkan patch SUSFS ke kernel tree..."
+              patch -p1 --forward < "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch" || echo "[WARN] Sebagian patch kernel mungkin sudah terpasang"
+
+              echo "===> Menerapkan patch SUSFS ke KernelSU-Next..."
+              if [ -d "KernelSU-Next" ]; then
+                cd KernelSU-Next
+                patch -p1 --forward < "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || echo "[WARN] Patch KernelSU sudah terpasang"
+                cd ..
+              elif [ -d "drivers/kernelsu" ]; then
+                cd drivers/kernelsu
+                patch -p1 --forward < "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || echo "[WARN] Patch KernelSU sudah terpasang"
+                cd ../..
+              fi
+
+              echo "===> Mengaktifkan config KernelSU & SUSFS di defconfig..."
+              DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
+              cat << 'EOF' >> "$DEFCONFIG_PATH"
+
+          # KernelSU & SUSFS Configuration
+          CONFIG_KSU=y
+          CONFIG_KSU_DEBUG=n
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSUD=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_SU=n
+          EOF
+            fi
+          fi
+
+      - name: Build Kernel
+        run: |
+          cd "$GITHUB_WORKSPACE/kernel_source"
+          DEFCONFIG="${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
+
+          export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export KBUILD_BUILD_USER="builder"
+          export KBUILD_BUILD_HOST="github-actions"
+
+          mkdir -p out
+          echo "===> Mengonfigurasi defconfig: $DEFCONFIG..."
+          make O=out "$DEFCONFIG"
+
+          echo "===> Mengompilasi Kernel..."
+          make -j$(nproc --all) O=out \
+            ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+      - name: Package with AnyKernel3
+        run: |
+          echo "===> Menyiapkan AnyKernel3..."
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$GITHUB_WORKSPACE/AnyKernel3"
+          cd "$GITHUB_WORKSPACE/AnyKernel3"
+
+          # Konfigurasi perangkat Redmi 10C (fog, wind, rain)
+          sed -i 's/device.name1=.*/device.name1=fog/' anykernel.sh
+          sed -i 's/device.name2=.*/device.name2=wind/' anykernel.sh
+          sed -i 's/device.name3=.*/device.name3=rain/' anykernel.sh
+          sed -i 's/device.name4=.*/device.name4=sm6225/' anykernel.sh
+          sed -i 's/is_slot_device=0;/is_slot_device=auto;/' anykernel.sh
+
+          OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
+
+          # Salin file kernel hasil build
+          if [ -f "$OUT_DIR/Image.gz-dtb" ]; then
+            echo "Menemukan Image.gz-dtb"
+            cp "$OUT_DIR/Image.gz-dtb" .
+          elif [ -f "$OUT_DIR/Image.gz" ]; then
+            echo "Menemukan Image.gz"
+            cp "$OUT_DIR/Image.gz" .
+          elif [ -f "$OUT_DIR/Image" ]; then
+            echo "Menemukan Image"
+            cp "$OUT_DIR/Image" .
+          else
+            echo "ERROR: Tidak ditemukan Image hasil kompilasi!"
+            exit 1
+          fi
+
+          # Salin dtbo.img jika ada
+          if [ -f "$OUT_DIR/dtbo.img" ]; then
+            echo "Menemukan dtbo.img"
+            cp "$OUT_DIR/dtbo.img" .
+          fi
+
+          # Salin dtb jika ada
+          if [ -f "$OUT_DIR/dtb.img" ]; then
+            echo "Menemukan dtb.img"
+            cp "$OUT_DIR/dtb.img" dtb
+          elif [ -f "$OUT_DIR/dtb" ]; then
+            echo "Menemukan dtb"
+            cp "$OUT_DIR/dtb" .
+          fi
+
+          DATE=$(date +'%Y%m%d-%H%M')
+          ZIP_NAME="KernelSU-Next-SUSFS-fog-${DATE}.zip"
+          zip -r9 "$ZIP_NAME" * -x .git README.md *placeholder
+
+          mkdir -p "$GITHUB_WORKSPACE/output"
+          mv "$ZIP_NAME" "$GITHUB_WORKSPACE/output/"
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: output/*
+          retention-days: 14
+          compression-level: 6

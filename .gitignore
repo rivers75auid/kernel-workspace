@@ -1,0 +1,9 @@
+# Output zip & temporary files
+output/
+*.zip
+*.tar.gz
+*.log
+out/
+build/
+.vscode/
+.idea/

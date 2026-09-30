@@ -1,4 +1,4 @@
-name: Build Redmi 10C Kernel (KernelSU-Next + SUSFS v2.3.0 + Hardcore RAM Optimization)
+name: Build Redmi 10C Kernel (KernelSU-Next + SUSFS v2.3.0 + Godmode Potato Suite)
 
 on:
   workflow_dispatch:
@@ -29,8 +29,8 @@ on:
         description: 'SUSFS Header Version Tag'
         required: true
         default: 'v2.3.0'
-      ENABLE_HARDCORE_RAM_OPT:
-        description: 'Enable Hardcore RAM, MGLRU, KSM & ZRAM ZSTD Optimizations'
+      ENABLE_GODMODE_POTATO:
+        description: 'Enable Godmode Suite (FAS/UCLAMP, BFQ, MGLRU, KSM, ZSTD, Zero-Debloat)'
         required: true
         type: boolean
         default: true
@@ -154,43 +154,54 @@ jobs:
             fi
           fi
 
-      - name: Apply Hardcore RAM & Kernel Optimizations
+      - name: Apply Godmode Potato Optimizations (Kernel Config)
         run: |
           cd "$GITHUB_WORKSPACE/kernel_source"
-          OPT_RAM="${{ github.event_name == 'push' && 'true' || github.event.inputs.ENABLE_HARDCORE_RAM_OPT }}"
+          OPT_GOD="${{ github.event_name == 'push' && 'true' || github.event.inputs.ENABLE_GODMODE_POTATO }}"
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
 
-          if [ "$OPT_RAM" = "true" ]; then
-            echo "===> Mengaktifkan Hardcore RAM Optimizations (MGLRU, KSM, Z3FOLD, ZSTD, Zero-Debloat)..."
+          if [ "$OPT_GOD" = "true" ]; then
+            echo "===> Mengaktifkan Godmode Potato Suite (UCLAMP, BFQ, MGLRU, KSM, Z3FOLD, ZSTD, Zero-Debloat)..."
             cat << 'EOF' >> "$DEFCONFIG_PATH"
 
-          # 1. Multi-Gen LRU (MGLRU) - Zero Thrashing Page Reclaim
+          # ==============================================================
+          # 1. CPU Scheduling, FAS / UCLAMP & Governor Foundation
+          # ==============================================================
+          CONFIG_UCLAMP_TASK=y
+          CONFIG_UCLAMP_TASK_GROUP=y
+          CONFIG_UCLAMP_BUCKETS_COUNT=20
+          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+
+          # ==============================================================
+          # 2. Storage I/O Optimization (BFQ Low-Latency Scheduler)
+          # ==============================================================
+          CONFIG_IOSCHED_BFQ=y
+          CONFIG_BFQ_GROUP_IOSCHED=y
+          CONFIG_MQ_IOSCHED_DEADLINE=y
+
+          # ==============================================================
+          # 3. Memory Subsystem (MGLRU, KSM, Z3FOLD, ZSTD 3:1)
+          # ==============================================================
           CONFIG_LRU_GEN=y
           CONFIG_LRU_GEN_ENABLED=y
           # CONFIG_LRU_GEN_STATS is not set
-
-          # 2. Kernel Samepage Merging (KSM) - Menggabungkan Page Identik ART Android 16
           CONFIG_KSM=y
-
-          # 3. Z3FOLD & ZPOOL - Kompresi Memori 3 Halaman per Frame
           CONFIG_ZPOOL=y
           CONFIG_Z3FOLD=y
           CONFIG_ZSWAP=y
-
-          # 4. ZRAM High-Density Compression (ZSTD Default)
           CONFIG_ZRAM=y
           CONFIG_ZRAM_DEF_COMP_ZSTD=y
           CONFIG_ZRAM_DEF_COMP="zstd"
           CONFIG_ZRAM_WRITEBACK=y
           CONFIG_CRYPTO_ZSTD=y
           CONFIG_CRYPTO_LZ4=y
-
-          # 5. Process Reclaim & Aggressive Compaction
           CONFIG_PROCESS_RECLAIM=y
           CONFIG_COMPACTION=y
           CONFIG_PAGE_BOUNCE=y
 
-          # 6. Stripping Debug/Tracing Bloat (Hemat ~150-200MB Unreclaimable RAM)
+          # ==============================================================
+          # 4. Kernel Debloat: Stripping Debug & Tracing Bloat (~200MB RAM)
+          # ==============================================================
           # CONFIG_DEBUG_KMEMLEAK is not set
           # CONFIG_PAGE_OWNER is not set
           # CONFIG_DEBUG_SPINLOCK is not set
@@ -199,10 +210,13 @@ jobs:
           # CONFIG_DYNAMIC_DEBUG is not set
           CONFIG_SLUB_DEBUG=n
 
-          # 7. Google TCP BBR Congestion Control
+          # ==============================================================
+          # 5. Network Latency & Bufferbloat Mitigation (BBR + FQ)
+          # ==============================================================
           CONFIG_TCP_CONG_ADVANCED=y
           CONFIG_TCP_CONG_BBR=y
           CONFIG_DEFAULT_TCP_CONG="bbr"
+          CONFIG_NET_SCH_FQ_CODEL=y
           EOF
           fi
 
@@ -246,12 +260,12 @@ jobs:
           sed -i 's/device.name4=.*/device.name4=sm6225/' anykernel.sh
           sed -i 's/is_slot_device=0;/is_slot_device=auto;/' anykernel.sh
 
-          # Tambahkan script runtime hardcore RAM optimizer ke AnyKernel3
+          # Tambahkan script runtime Godmode Potato optimizer ke AnyKernel3
           cat << 'EOF' >> anykernel.sh
 
-          # Injeksi script runtime Hardcore RAM & LMKD tuning untuk Android 16
+          # Injeksi script runtime Godmode Potato Suite untuk Android 16
           if [ -d "/data/adb/service.d" ]; then
-            cat << 'SCRIPT' > /data/adb/service.d/99-hardcore-ram-fog.sh
+            cat << 'SCRIPT' > /data/adb/service.d/99-godmode-potato-fog.sh
           #!/system/bin/sh
           # Tunggu sistem Android selesai boot sepenuhnya
           while [ "$(getprop sys.boot_completed)" != "1" ]; do
@@ -259,7 +273,44 @@ jobs:
           done
 
           # ==============================================================
-          # 1. Multi-Gen LRU (MGLRU) Aggressive Tiering
+          # 1. CPU Scheduling: FAS (Frame Aware Scheduling) & Schedutil
+          # ==============================================================
+          # Percepat ramp-up clock CPU ke 0.5ms saat beban naik
+          for gov in /sys/devices/system/cpu/cpufreq/policy*/schedutil; do
+            [ -d "$gov" ] || continue
+            echo 500 > "$gov/up_rate_limit_us" 2>/dev/null || true
+            echo 20000 > "$gov/down_rate_limit_us" 2>/dev/null || true
+            echo 1000 > "$gov/rate_limit_us" 2>/dev/null || true
+          done
+
+          # UCLAMP (Per-Process Utilization Clamping)
+          # Top-App (UI & Game aktif): Kunci ke Core Big (A73) dengan minimum boost 20%
+          if [ -d "/dev/cpuset/top-app" ]; then
+            echo 0-7 > /dev/cpuset/top-app/cpus
+            echo 20 > /dev/cpuctl/top-app/uclamp.min 2>/dev/null || true
+            echo 100 > /dev/cpuctl/top-app/uclamp.max 2>/dev/null || true
+            echo 1 > /dev/cpuctl/top-app/uclamp.latency_sensitive 2>/dev/null || true
+          fi
+          # Background apps: Batasi keras ke Core Little (A53) & cap max 30%
+          if [ -d "/dev/cpuset/background" ]; then
+            echo 0-3 > /dev/cpuset/background/cpus
+            echo 0 > /dev/cpuctl/background/uclamp.min 2>/dev/null || true
+            echo 30 > /dev/cpuctl/background/uclamp.max 2>/dev/null || true
+          fi
+
+          # ==============================================================
+          # 2. Storage I/O: BFQ Low-Latency + 512KB Read-Ahead
+          # ==============================================================
+          for queue in /sys/block/*/queue; do
+            [ -d "$queue" ] || continue
+            echo bfq > "$queue/scheduler" 2>/dev/null || true
+            echo 1 > "$queue/iosched/low_latency" 2>/dev/null || true
+            echo 0 > "$queue/iosched/slice_idle" 2>/dev/null || true
+            echo 512 > "$queue/read_ahead_kb" 2>/dev/null || true
+          done
+
+          # ==============================================================
+          # 3. Multi-Gen LRU (MGLRU) Aggressive Tiering
           # ==============================================================
           if [ -f "/sys/kernel/mm/lru_gen/enabled" ]; then
             echo 7 > /sys/kernel/mm/lru_gen/enabled
@@ -267,7 +318,7 @@ jobs:
           fi
 
           # ==============================================================
-          # 2. Kernel Samepage Merging (KSM) - Deduplikasi RAM ART Runtime
+          # 4. Kernel Samepage Merging (KSM) - Deduplikasi RAM ART
           # ==============================================================
           if [ -d "/sys/kernel/mm/ksm" ]; then
             echo 1 > /sys/kernel/mm/ksm/run
@@ -277,7 +328,7 @@ jobs:
           fi
 
           # ==============================================================
-          # 3. ZRAM Dynamic Reallocation (4GB ZSTD, Prioritas Tinggi)
+          # 5. ZRAM Dynamic Reallocation (4GB ZSTD, Prioritas Tinggi)
           # ==============================================================
           if [ -b "/dev/block/zram0" ]; then
             swapoff /dev/block/zram0 2>/dev/null || true
@@ -289,7 +340,7 @@ jobs:
           fi
 
           # ==============================================================
-          # 4. Virtual Memory, VFS Choke Prevention & I/O Tuning
+          # 6. Virtual Memory, VFS Choke Prevention & I/O Tuning
           # ==============================================================
           echo 0 > /proc/sys/vm/page-cluster
           echo 160 > /proc/sys/vm/swappiness
@@ -305,7 +356,7 @@ jobs:
           echo 50 > /proc/sys/vm/compaction_proactiveness 2>/dev/null || true
 
           # ==============================================================
-          # 5. Process Reclaim Background Compression
+          # 7. Process Reclaim Background Compression
           # ==============================================================
           if [ -d "/sys/module/process_reclaim/parameters" ]; then
             echo 1 > /sys/module/process_reclaim/parameters/enable_process_reclaim
@@ -316,7 +367,7 @@ jobs:
           fi
 
           # ==============================================================
-          # 6. Android 16 LMKD & UI Priority Optimization
+          # 8. Android 16 SurfaceFlinger, LMKD & Real-Time UI Scheduling
           # ==============================================================
           setprop sys.use_fifo_ui 1
           setprop ro.lmk.kill_heaviest_task true
@@ -325,13 +376,18 @@ jobs:
           setprop ro.lmk.psi_partial_stall_ms 100
           setprop ro.lmk.thrashing_limit 50
           setprop ro.lmk.thrashing_limit_decay 10
+          setprop debug.sf.latch_unsignaled 1
+          setprop debug.sf.disable_backpressure 1
+          setprop debug.hwui.render_dirty_regions false
+          setprop debug.hwui.use_buffer_age false
 
           # ==============================================================
-          # 7. Network BBR Activation
+          # 9. Network Bufferbloat Kill (Google BBR + FQ-CoDel)
           # ==============================================================
+          echo fq_codel > /proc/sys/net/core/default_qdisc 2>/dev/null || true
           echo bbr > /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null || true
           SCRIPT
-            chmod 755 /data/adb/service.d/99-hardcore-ram-fog.sh
+            chmod 755 /data/adb/service.d/99-godmode-potato-fog.sh
           fi
           EOF
 
@@ -368,7 +424,7 @@ jobs:
           fi
 
           DATE=$(date +'%Y%m%d-%H%M')
-          ZIP_NAME="KernelSU-Next-SUSFS-HardcoreRAM-fog-${DATE}.zip"
+          ZIP_NAME="KernelSU-Next-SUSFS-GodmodePotato-fog-${DATE}.zip"
           zip -r9 "$ZIP_NAME" * -x .git README.md *placeholder
 
           mkdir -p "$GITHUB_WORKSPACE/output"

@@ -322,6 +322,164 @@ if target in c and 'labeledfs' not in c:
     print('rules.c patched for SuSFS!')
 "
 
+        echo "===> Menambahkan dispatch SUSFS (reboot-based) ke supercall KernelSU-Next..."
+        cat > ksu_susfs_dispatch_patch.py << 'PYEOF'
+path = 'KernelSU-Next/kernel/supercall/supercall.c'
+with open(path, 'r') as f:
+    c = f.read()
+
+if 'ksu_handle_susfs_sys_reboot' in c:
+    print('[+] supercall.c already patched for SUSFS dispatch')
+else:
+    inc = '#include <linux/version.h>\n#ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs.h>\n#include <linux/susfs_def.h>\n#include <linux/kernel.h>\n#include <linux/string.h>\n#endif\n'
+    c = c.replace('#include <linux/version.h>\n', inc, 1)
+
+    susfs_handler = '''
+#ifdef CONFIG_KSU_SUSFS
+#ifndef SUSFS_MAGIC
+#define SUSFS_MAGIC 0xFAFAFAFA
+#endif
+#ifndef SUSFS_MAX_VERSION_BUFSIZE
+#define SUSFS_MAX_VERSION_BUFSIZE 16
+#endif
+#ifndef SUSFS_MAX_VARIANT_BUFSIZE
+#define SUSFS_MAX_VARIANT_BUFSIZE 16
+#endif
+#ifndef SUSFS_ENABLED_FEATURES_SIZE
+#define SUSFS_ENABLED_FEATURES_SIZE 8192
+#endif
+#ifndef SUSFS_VARIANT
+#define SUSFS_VARIANT "NON-GKI"
+#endif
+
+struct ksu_susfs_version_cmd {
+	char version[SUSFS_MAX_VERSION_BUFSIZE];
+	int err;
+};
+struct ksu_susfs_variant_cmd {
+	char variant[SUSFS_MAX_VARIANT_BUFSIZE];
+	int err;
+};
+struct ksu_susfs_features_cmd {
+	char features[SUSFS_ENABLED_FEATURES_SIZE];
+	int err;
+};
+
+static int ksu_handle_susfs_sys_reboot(unsigned int cmd, void __user **arg)
+{
+	switch (cmd) {
+	case CMD_SUSFS_SHOW_VERSION: {
+		struct ksu_susfs_version_cmd v = {0};
+		scnprintf(v.version, sizeof(v.version), "%s", SUSFS_VERSION);
+		v.err = 0;
+		if (copy_to_user((void __user *)*arg, &v, sizeof(v)))
+			return -EFAULT;
+		return 0;
+	}
+	case CMD_SUSFS_SHOW_VARIANT: {
+		struct ksu_susfs_variant_cmd var = {0};
+		scnprintf(var.variant, sizeof(var.variant), "%s", SUSFS_VARIANT);
+		var.err = 0;
+		if (copy_to_user((void __user *)*arg, &var, sizeof(var)))
+			return -EFAULT;
+		return 0;
+	}
+	case CMD_SUSFS_SHOW_ENABLED_FEATURES: {
+		struct ksu_susfs_features_cmd *feat;
+		char *p;
+		size_t remain;
+		int n;
+
+		feat = kzalloc(sizeof(*feat), GFP_KERNEL);
+		if (!feat)
+			return -ENOMEM;
+		p = feat->features;
+		remain = sizeof(feat->features);
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_PATH\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_MOUNT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_KSTAT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_OVERLAYFS
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_OVERLAYFS\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_TRY_UMOUNT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SPOOF_UNAME\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_ENABLE_LOG\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_OPEN_REDIRECT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_SU
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_SU\n");
+		p += n; remain -= n;
+#endif
+		feat->err = 0;
+		if (copy_to_user((void __user *)*arg, feat, sizeof(*feat))) {
+			kfree(feat);
+			return -EFAULT;
+		}
+		kfree(feat);
+		return 0;
+	}
+	default:
+		return 0;
+	}
+}
+#endif
+'''
+    c = c.replace('int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,', susfs_handler + '\nint ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,', 1)
+
+    route_anchor = '\tu64 reply = (u64)*arg;\n\n\tif (magic2 == CHANGE_MANAGER_UID) {'
+    route_repl = '\tu64 reply = (u64)*arg;\n\n#ifdef CONFIG_KSU_SUSFS\n\tif ((unsigned int)magic2 == 0xFAFAFAFA) {\n\t\treturn ksu_handle_susfs_sys_reboot(cmd, arg);\n\t}\n#endif\n\n\tif (magic2 == CHANGE_MANAGER_UID) {'
+    if route_anchor in c:
+        c = c.replace(route_anchor, route_repl, 1)
+    else:
+        print('[WARN] supercall.c SUSFS route anchor not found')
+
+    with open(path, 'w') as f:
+        f.write(c)
+    print('[+] supercall.c patched for SUSFS dispatch')
+PYEOF
+        python3 ksu_susfs_dispatch_patch.py && rm -f ksu_susfs_dispatch_patch.py
+
         echo "===> Menambahkan definisi Kconfig SuSFS..."
         cat << 'EOF' >> KernelSU-Next/kernel/Kconfig
 

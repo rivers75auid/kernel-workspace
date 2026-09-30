@@ -168,6 +168,10 @@ jobs:
           sed -i '/CONFIG_LOCALVERSION/d' "$DEFCONFIG_PATH"
           echo "CONFIG_LOCALVERSION=\"-${KNAME}\"" >> "$DEFCONFIG_PATH"
 
+          echo "===> Memperbaiki duplikasi yamltree.o & hostprogs di scripts/dtc/Makefile..."
+          sed -i 's/dtc dtc/dtc/g' scripts/dtc/Makefile
+          sed -i '/yamltree.o/d' scripts/dtc/Makefile
+
           if [ "$OPT_GOD" = "true" ]; then
             echo "===> Mengaktifkan Godmode Potato Suite (WALT/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
             cat "$GITHUB_WORKSPACE/configs/godmode_potato.config" >> "$DEFCONFIG_PATH"

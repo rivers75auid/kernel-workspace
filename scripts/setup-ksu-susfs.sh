@@ -334,7 +334,7 @@ else:
     inc = '#include <linux/version.h>\n#ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs.h>\n#include <linux/susfs_def.h>\n#include <linux/kernel.h>\n#include <linux/string.h>\n#endif\n'
     c = c.replace('#include <linux/version.h>\n', inc, 1)
 
-    susfs_handler = '''
+    susfs_handler = r'''
 #ifdef CONFIG_KSU_SUSFS
 #ifndef SUSFS_MAGIC
 #define SUSFS_MAGIC 0xFAFAFAFA

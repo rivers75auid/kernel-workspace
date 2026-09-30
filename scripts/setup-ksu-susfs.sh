@@ -56,6 +56,10 @@ if target in c and 'ksu_handle_sys_reboot' not in c:
         echo "===> Menerapkan patch SUSFS ke kernel tree..."
         patch -p1 --forward < "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch" || echo "[WARN] Sebagian patch kernel mungkin sudah terpasang"
 
+        echo "===> Memastikan header susfs_def.h terpasang di fs.h dan task_mmu.c..."
+        sed -i '/#define _LINUX_FS_H/a #ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif' include/linux/fs.h || true
+        grep -q "susfs_def.h" fs/proc/task_mmu.c || sed -i '1i #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c || true
+
         echo "===> Menyiapkan inisialisasi SUSFS..."
         sed -i 's/void susfs_init(void) {/late_initcall(susfs_init);\nvoid susfs_init(void) {/' fs/susfs.c || true
 

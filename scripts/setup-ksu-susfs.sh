@@ -10,8 +10,8 @@ DEFCONFIG="${4:-vendor/fog-perf_defconfig}"
 DEFCONFIG_PATH="arch/arm64/configs/$DEFCONFIG"
 
 if [ "$ENABLE_KSU" = "true" ]; then
-    echo "===> Mengintegrasikan KernelSU-Next (Legacy Branch v3.4.0 untuk Non-GKI 4.19)..."
-    git clone --depth=1 -b v3.4.0-legacy https://github.com/KernelSU-Next/KernelSU-Next.git "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next"
+    echo "===> Mengintegrasikan KernelSU-Next (Legacy Branch untuk Non-GKI 4.19)..."
+    git clone --depth=1 -b legacy https://github.com/KernelSU-Next/KernelSU-Next.git "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next"
 
     rm -rf drivers/kernelsu
     ln -sfn "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next/kernel" drivers/kernelsu
@@ -19,6 +19,108 @@ if [ "$ENABLE_KSU" = "true" ]; then
     echo "[+] Verified drivers/kernelsu/Kconfig exists."
     grep -q "kernelsu" drivers/Makefile || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> drivers/Makefile
     grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+    echo "===> Mengaktifkan hook setresuid, prctl, read, dan execve di syscall_table_hook.c..."
+    python3 -c "
+with open('KernelSU-Next/kernel/hook/syscall_table_hook.c', 'r') as f:
+    c = f.read()
+
+extra_inc = '''#include <linux/cred.h>
+#include \"hook/setuid_hook.h\"
+#include \"manager/manager_identity.h\"
+#include \"manager/throne_tracker.h\"
+#include \"manager/manager_observer.h\"
+#include \"runtime/ksud_boot.h\"
+#include \"supercall/supercall.h\"
+'''
+if 'manager_identity.h' not in c:
+    c = c.replace('#include \"runtime/ksud.h\"', '#include \"runtime/ksud.h\"\\n' + extra_inc, 1)
+
+# Bridge execve and execveat to ksud_integration to trigger init second_stage and zygote post-fs-data
+execve_target = 'const char __user **filename_user =\\n\\t\\t(const char __user **)&PT_REGS_PARM1(regs);\\n\\tlong adb_ret = 0;\\n\\n\\tif (current->pid != 1 && is_init(current_cred())) {'
+execve_repl = 'const char __user **filename_user =\\n\\t\\t(const char __user **)&PT_REGS_PARM1(regs);\\n\\tlong adb_ret = 0;\\n\\n\\tksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM2(regs));\\n\\n\\tif (current->pid != 1 && is_init(current_cred())) {'
+if 'ksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM2(regs));' not in c:
+    c = c.replace(execve_target, execve_repl, 1)
+
+execveat_target = 'if ((int)PT_REGS_PARM1(regs) == AT_FDCWD &&\\n\\t    (int)PT_REGS_SYSCALL_PARM4(regs) == 0) {\\n\\t\\tif (current->pid != 1 && is_init(current_cred())) {'
+execveat_repl = 'if ((int)PT_REGS_PARM1(regs) == AT_FDCWD &&\\n\\t    (int)PT_REGS_SYSCALL_PARM4(regs) == 0) {\\n\\t\\tksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM3(regs));\\n\\t\\tif (current->pid != 1 && is_init(current_cred())) {'
+if 'ksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM3(regs));' not in c:
+    c = c.replace(execveat_target, execveat_repl, 1)
+
+# Add setresuid, prctl, and read handlers
+handlers = '''
+#ifdef __NR_setresuid
+static long ksu_sth_setresuid(const struct pt_regs *regs)
+{
+	uid_t ruid = (uid_t)PT_REGS_PARM1(regs);
+	uid_t euid = (uid_t)PT_REGS_PARM2(regs);
+	uid_t suid = (uid_t)PT_REGS_PARM3(regs);
+
+	ksu_handle_setresuid(current_uid().val, ruid);
+
+	return ksu_sth_call_orig(__NR_setresuid, regs);
+}
+#endif
+
+#ifdef __NR_prctl
+static long ksu_sth_prctl(const struct pt_regs *regs)
+{
+	int option = (int)PT_REGS_PARM1(regs);
+	unsigned long arg2 = (unsigned long)PT_REGS_PARM2(regs);
+	unsigned long arg3 = (unsigned long)PT_REGS_PARM3(regs);
+	unsigned long arg4 = (unsigned long)PT_REGS_SYSCALL_PARM4(regs);
+	unsigned long arg5 = (unsigned long)PT_REGS_PARM5(regs);
+
+	if (unlikely(option == 0xDEADBEEF)) {
+		if (!ksu_is_manager_appid_valid()) {
+			track_throne(false);
+		}
+		if (is_manager()) {
+			ksu_install_fd();
+		}
+		if (arg2 == 2) {
+			int version = KSU_VERSION;
+			int flags = 0;
+			if (is_manager()) {
+				flags |= 0x2; // KSU_GET_INFO_FLAG_MANAGER
+			}
+			if (copy_to_user((void __user *)arg3, &version, sizeof(version)))
+				return -EFAULT;
+			if (copy_to_user((void __user *)arg4, &flags, sizeof(flags)))
+				return -EFAULT;
+			return 0;
+		}
+	}
+
+	return ksu_sth_call_orig(__NR_prctl, regs);
+}
+#endif
+
+#ifdef __NR_read
+extern bool ksu_init_rc_hook;
+extern void ksu_handle_sys_read(unsigned int fd);
+static long ksu_sth_read(const struct pt_regs *regs)
+{
+	if (unlikely(current->pid == 1 && ksu_init_rc_hook)) {
+		unsigned int fd = (unsigned int)PT_REGS_PARM1(regs);
+		ksu_handle_sys_read(fd);
+	}
+	return ksu_sth_call_orig(__NR_read, regs);
+}
+#endif
+'''
+if 'ksu_sth_setresuid' not in c:
+    c = c.replace('void __init ksu_syscall_table_hook_init(void)', handlers + '\\nvoid __init ksu_syscall_table_hook_init(void)', 1)
+
+hooks_anchor = '{ __NR_newfstatat, ksu_sth_newfstatat },\\n#endif'
+hooks_repl = '{ __NR_newfstatat, ksu_sth_newfstatat },\\n#endif\\n#ifdef __NR_setresuid\\n\\t\\t{ __NR_setresuid, ksu_sth_setresuid },\\n#endif\\n#ifdef __NR_prctl\\n\\t\\t{ __NR_prctl, ksu_sth_prctl },\\n#endif\\n#ifdef __NR_read\\n\\t\\t{ __NR_read, ksu_sth_read },\\n#endif'
+if '{ __NR_setresuid' not in c:
+    c = c.replace(hooks_anchor, hooks_repl, 1)
+
+with open('KernelSU-Next/kernel/hook/syscall_table_hook.c', 'w') as f:
+    f.write(c)
+print('[+] syscall_table_hook.c successfully patched for non-GKI!')
+"
 
     echo "===> Menerapkan hook reboot.c untuk handshake KernelSU..."
     python3 -c "

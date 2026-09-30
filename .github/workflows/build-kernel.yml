@@ -3,6 +3,10 @@ name: Build Redmi 10C Kernel (KernelSU-Next + SUSFS v2.3.0 + Godmode Potato Suit
 on:
   workflow_dispatch:
     inputs:
+      KERNEL_NAME:
+        description: 'Custom Kernel Name (Tampil di Settings > About Phone)'
+        required: true
+        default: 'Kairos'
       KERNEL_REPO:
         description: 'Kernel Source Repository (owner/repo)'
         required: true
@@ -154,11 +158,17 @@ jobs:
             fi
           fi
 
-      - name: Apply Godmode Potato Optimizations (Kernel Config)
+      - name: Apply Custom Kernel Name & Godmode Potato Optimizations
         run: |
           cd "$GITHUB_WORKSPACE/kernel_source"
           OPT_GOD="${{ github.event_name == 'push' && 'true' || github.event.inputs.ENABLE_GODMODE_POTATO }}"
+          KNAME="${{ github.event_name == 'push' && 'Kairos' || github.event.inputs.KERNEL_NAME || 'Kairos' }}"
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
+
+          echo "===> Menyetel Nama Kernel ke: $KNAME..."
+          # Set localversion agar muncul di Settings > About Phone > Kernel Version
+          sed -i '/CONFIG_LOCALVERSION/d' "$DEFCONFIG_PATH"
+          echo "CONFIG_LOCALVERSION=\"-${KNAME}\"" >> "$DEFCONFIG_PATH"
 
           if [ "$OPT_GOD" = "true" ]; then
             echo "===> Mengaktifkan Godmode Potato Suite (UCLAMP, BFQ, MGLRU, KSM, Z3FOLD, ZSTD, Zero-Debloat)..."
@@ -224,6 +234,7 @@ jobs:
         run: |
           cd "$GITHUB_WORKSPACE/kernel_source"
           DEFCONFIG="${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
+          KNAME="${{ github.event_name == 'push' && 'Kairos' || github.event.inputs.KERNEL_NAME || 'Kairos' }}"
 
           export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
           export ARCH=arm64
@@ -232,8 +243,8 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           export CLANG_TRIPLE=aarch64-linux-gnu-
-          export KBUILD_BUILD_USER="builder"
-          export KBUILD_BUILD_HOST="github-actions"
+          export KBUILD_BUILD_USER="${KNAME}-Dev"
+          export KBUILD_BUILD_HOST="Olympus-Buildbox"
 
           mkdir -p out
           echo "===> Mengonfigurasi defconfig: $DEFCONFIG..."
@@ -253,7 +264,10 @@ jobs:
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git "$GITHUB_WORKSPACE/AnyKernel3"
           cd "$GITHUB_WORKSPACE/AnyKernel3"
 
+          KNAME="${{ github.event_name == 'push' && 'Kairos' || github.event.inputs.KERNEL_NAME || 'Kairos' }}"
+
           # Konfigurasi perangkat Redmi 10C (fog, wind, rain)
+          sed -i "s/kernel.string=.*/kernel.string=${KNAME} Kernel for Redmi 10C (fog)/" anykernel.sh
           sed -i 's/device.name1=.*/device.name1=fog/' anykernel.sh
           sed -i 's/device.name2=.*/device.name2=wind/' anykernel.sh
           sed -i 's/device.name3=.*/device.name3=rain/' anykernel.sh
@@ -275,7 +289,6 @@ jobs:
           # ==============================================================
           # 1. CPU Scheduling: FAS (Frame Aware Scheduling) & Schedutil
           # ==============================================================
-          # Percepat ramp-up clock CPU ke 0.5ms saat beban naik
           for gov in /sys/devices/system/cpu/cpufreq/policy*/schedutil; do
             [ -d "$gov" ] || continue
             echo 500 > "$gov/up_rate_limit_us" 2>/dev/null || true
@@ -424,7 +437,7 @@ jobs:
           fi
 
           DATE=$(date +'%Y%m%d-%H%M')
-          ZIP_NAME="KernelSU-Next-SUSFS-GodmodePotato-fog-${DATE}.zip"
+          ZIP_NAME="${KNAME}-SUSFS-GodmodePotato-fog-${DATE}.zip"
           zip -r9 "$ZIP_NAME" * -x .git README.md *placeholder
 
           mkdir -p "$GITHUB_WORKSPACE/output"

@@ -1,4 +1,4 @@
-name: Build Redmi 10C Kernel (KernelSU-Next + SUSFS + RAM Optimization)
+name: Build Redmi 10C Kernel (KernelSU-Next + SUSFS v2.3.0 + Hardcore RAM Optimization)
 
 on:
   workflow_dispatch:
@@ -25,8 +25,12 @@ on:
         required: true
         type: boolean
         default: true
-      OPTIMIZE_RAM:
-        description: 'Enable MGLRU, ZSTD ZRAM & Low-RAM Optimizations'
+      SUSFS_VERSION_TAG:
+        description: 'SUSFS Header Version Tag'
+        required: true
+        default: 'v2.3.0'
+      ENABLE_HARDCORE_RAM_OPT:
+        description: 'Enable Hardcore RAM, MGLRU, KSM & ZRAM ZSTD Optimizations'
         required: true
         type: boolean
         default: true
@@ -93,14 +97,18 @@ jobs:
 
           ENABLE_KSU="${{ github.event_name == 'push' && 'true' || github.event.inputs.ENABLE_KSU_NEXT }}"
           ENABLE_SUS="${{ github.event_name == 'push' && 'true' || github.event.inputs.ENABLE_SUSFS }}"
+          SUS_VER="${{ github.event.inputs.SUSFS_VERSION_TAG || 'v2.3.0' }}"
 
           if [ "$ENABLE_KSU" = "true" ]; then
             echo "===> Inisialisasi KernelSU-Next (Latest Next Branch)..."
             curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
 
             if [ "$ENABLE_SUS" = "true" ]; then
-              echo "===> Mengambil Patch SUSFS 4.19 (Latest dari simonpunk/susfs4ksu)..."
+              echo "===> Mengambil Patch SUSFS 4.19 (Latest Upstream simonpunk)..."
               git clone --depth=1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git "$GITHUB_WORKSPACE/susfs4ksu"
+
+              echo "===> Menyesuaikan versi SUSFS Header ke $SUS_VER (Sinkron modul terbaru)..."
+              sed -i "s/#define SUSFS_VERSION .*/#define SUSFS_VERSION \"$SUS_VER\"/" "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/include/linux/susfs.h"
 
               echo "===> Menerapkan source code SUSFS ke kernel..."
               cp -r "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/fs"/* fs/
@@ -124,7 +132,7 @@ jobs:
               DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
               cat << 'EOF' >> "$DEFCONFIG_PATH"
 
-          # KernelSU-Next & SUSFS v1.5.5+ Configuration
+          # KernelSU-Next & SUSFS v2.3.0 Configuration
           CONFIG_KSU=y
           CONFIG_KSU_DEBUG=n
           CONFIG_KSU_SUSFS=y
@@ -146,22 +154,30 @@ jobs:
             fi
           fi
 
-      - name: Apply RAM, MGLRU & Network Optimizations
+      - name: Apply Hardcore RAM & Kernel Optimizations
         run: |
           cd "$GITHUB_WORKSPACE/kernel_source"
-          OPT_RAM="${{ github.event_name == 'push' && 'true' || github.event.inputs.OPTIMIZE_RAM }}"
+          OPT_RAM="${{ github.event_name == 'push' && 'true' || github.event.inputs.ENABLE_HARDCORE_RAM_OPT }}"
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
 
           if [ "$OPT_RAM" = "true" ]; then
-            echo "===> Mengaktifkan Optimisasi RAM 4GB, MGLRU, ZRAM ZSTD & BBR..."
+            echo "===> Mengaktifkan Hardcore RAM Optimizations (MGLRU, KSM, Z3FOLD, ZSTD, Zero-Debloat)..."
             cat << 'EOF' >> "$DEFCONFIG_PATH"
 
-          # Multi-Gen LRU (MGLRU) Optimization for Android 16
+          # 1. Multi-Gen LRU (MGLRU) - Zero Thrashing Page Reclaim
           CONFIG_LRU_GEN=y
           CONFIG_LRU_GEN_ENABLED=y
           # CONFIG_LRU_GEN_STATS is not set
 
-          # High-Ratio ZRAM Compression (ZSTD)
+          # 2. Kernel Samepage Merging (KSM) - Menggabungkan Page Identik ART Android 16
+          CONFIG_KSM=y
+
+          # 3. Z3FOLD & ZPOOL - Kompresi Memori 3 Halaman per Frame
+          CONFIG_ZPOOL=y
+          CONFIG_Z3FOLD=y
+          CONFIG_ZSWAP=y
+
+          # 4. ZRAM High-Density Compression (ZSTD Default)
           CONFIG_ZRAM=y
           CONFIG_ZRAM_DEF_COMP_ZSTD=y
           CONFIG_ZRAM_DEF_COMP="zstd"
@@ -169,12 +185,21 @@ jobs:
           CONFIG_CRYPTO_ZSTD=y
           CONFIG_CRYPTO_LZ4=y
 
-          # Memory Reclaim & Compaction Tuning
+          # 5. Process Reclaim & Aggressive Compaction
           CONFIG_PROCESS_RECLAIM=y
           CONFIG_COMPACTION=y
           CONFIG_PAGE_BOUNCE=y
 
-          # Network Congestion Optimization (BBR by Google)
+          # 6. Stripping Debug/Tracing Bloat (Hemat ~150-200MB Unreclaimable RAM)
+          # CONFIG_DEBUG_KMEMLEAK is not set
+          # CONFIG_PAGE_OWNER is not set
+          # CONFIG_DEBUG_SPINLOCK is not set
+          # CONFIG_DEBUG_MUTEXES is not set
+          # CONFIG_FTRACE is not set
+          # CONFIG_DYNAMIC_DEBUG is not set
+          CONFIG_SLUB_DEBUG=n
+
+          # 7. Google TCP BBR Congestion Control
           CONFIG_TCP_CONG_ADVANCED=y
           CONFIG_TCP_CONG_BBR=y
           CONFIG_DEFAULT_TCP_CONG="bbr"
@@ -221,36 +246,92 @@ jobs:
           sed -i 's/device.name4=.*/device.name4=sm6225/' anykernel.sh
           sed -i 's/is_slot_device=0;/is_slot_device=auto;/' anykernel.sh
 
-          # Tambahkan injeksi script optimisasi runtime RAM ke anykernel.sh
+          # Tambahkan script runtime hardcore RAM optimizer ke AnyKernel3
           cat << 'EOF' >> anykernel.sh
 
-          # Injeksi runtime boot script untuk optimisasi RAM 4GB & MGLRU
+          # Injeksi script runtime Hardcore RAM & LMKD tuning untuk Android 16
           if [ -d "/data/adb/service.d" ]; then
-            cat << 'SCRIPT' > /data/adb/service.d/99-fog-ram-tune.sh
+            cat << 'SCRIPT' > /data/adb/service.d/99-hardcore-ram-fog.sh
           #!/system/bin/sh
-          # Tunggu sistem selesai boot
+          # Tunggu sistem Android selesai boot sepenuhnya
           while [ "$(getprop sys.boot_completed)" != "1" ]; do
             sleep 2
           done
 
-          # 1. Pastikan MGLRU aktif dengan parameter optimal
+          # ==============================================================
+          # 1. Multi-Gen LRU (MGLRU) Aggressive Tiering
+          # ==============================================================
           if [ -f "/sys/kernel/mm/lru_gen/enabled" ]; then
             echo 7 > /sys/kernel/mm/lru_gen/enabled
             echo 1000 > /sys/kernel/mm/lru_gen/min_ttl_ms 2>/dev/null || true
           fi
 
-          # 2. Tweak Virtual Memory & ZRAM swap I/O
+          # ==============================================================
+          # 2. Kernel Samepage Merging (KSM) - Deduplikasi RAM ART Runtime
+          # ==============================================================
+          if [ -d "/sys/kernel/mm/ksm" ]; then
+            echo 1 > /sys/kernel/mm/ksm/run
+            echo 200 > /sys/kernel/mm/ksm/pages_to_scan
+            echo 500 > /sys/kernel/mm/ksm/sleep_millisecs
+            echo 1 > /sys/kernel/mm/ksm/deferred_timer 2>/dev/null || true
+          fi
+
+          # ==============================================================
+          # 3. ZRAM Dynamic Reallocation (4GB ZSTD, Prioritas Tinggi)
+          # ==============================================================
+          if [ -b "/dev/block/zram0" ]; then
+            swapoff /dev/block/zram0 2>/dev/null || true
+            echo 1 > /sys/block/zram0/reset 2>/dev/null || true
+            echo zstd > /sys/block/zram0/comp_algorithm 2>/dev/null || true
+            echo 4294967296 > /sys/block/zram0/disksize 2>/dev/null || true
+            mkswap /dev/block/zram0 2>/dev/null || true
+            swapon /dev/block/zram0 -p 32758 2>/dev/null || true
+          fi
+
+          # ==============================================================
+          # 4. Virtual Memory, VFS Choke Prevention & I/O Tuning
+          # ==============================================================
           echo 0 > /proc/sys/vm/page-cluster
           echo 160 > /proc/sys/vm/swappiness
-          echo 80 > /proc/sys/vm/vfs_cache_pressure
+          echo 70 > /proc/sys/vm/vfs_cache_pressure
+          echo 5 > /proc/sys/vm/dirty_ratio
+          echo 2 > /proc/sys/vm/dirty_background_ratio
+          echo 200 > /proc/sys/vm/dirty_expire_centisecs
+          echo 300 > /proc/sys/vm/dirty_writeback_centisecs
           echo 0 > /proc/sys/vm/watermark_boost_factor
           echo 125 > /proc/sys/vm/watermark_scale_factor
+          echo 24300 > /proc/sys/vm/extra_free_kbytes
+          echo 11520 > /proc/sys/vm/min_free_kbytes
           echo 50 > /proc/sys/vm/compaction_proactiveness 2>/dev/null || true
 
-          # 3. Aktifkan TCP BBR
+          # ==============================================================
+          # 5. Process Reclaim Background Compression
+          # ==============================================================
+          if [ -d "/sys/module/process_reclaim/parameters" ]; then
+            echo 1 > /sys/module/process_reclaim/parameters/enable_process_reclaim
+            echo 50 > /sys/module/process_reclaim/parameters/pressure_min
+            echo 85 > /sys/module/process_reclaim/parameters/pressure_max
+            echo 512 > /sys/module/process_reclaim/parameters/per_swap_size
+            echo 10 > /sys/module/process_reclaim/parameters/swap_opt_eff
+          fi
+
+          # ==============================================================
+          # 6. Android 16 LMKD & UI Priority Optimization
+          # ==============================================================
+          setprop sys.use_fifo_ui 1
+          setprop ro.lmk.kill_heaviest_task true
+          setprop ro.lmk.use_psi true
+          setprop ro.lmk.psi_complete_stall_ms 350
+          setprop ro.lmk.psi_partial_stall_ms 100
+          setprop ro.lmk.thrashing_limit 50
+          setprop ro.lmk.thrashing_limit_decay 10
+
+          # ==============================================================
+          # 7. Network BBR Activation
+          # ==============================================================
           echo bbr > /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null || true
           SCRIPT
-            chmod 755 /data/adb/service.d/99-fog-ram-tune.sh
+            chmod 755 /data/adb/service.d/99-hardcore-ram-fog.sh
           fi
           EOF
 
@@ -287,7 +368,7 @@ jobs:
           fi
 
           DATE=$(date +'%Y%m%d-%H%M')
-          ZIP_NAME="KernelSU-Next-SUSFS-MGLRU-fog-${DATE}.zip"
+          ZIP_NAME="KernelSU-Next-SUSFS-HardcoreRAM-fog-${DATE}.zip"
           zip -r9 "$ZIP_NAME" * -x .git README.md *placeholder
 
           mkdir -p "$GITHUB_WORKSPACE/output"

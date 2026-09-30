@@ -1,58 +1,45 @@
-# 🚀 Redmi 10C (fog/wind/rain) Kernel Builder: Godmode Potato Suite (KernelSU-Next + SUSFS v2.3.0 + FAS/UCLAMP + BFQ + MGLRU + KSM)
+# 🚀 Redmi 10C (fog/wind/rain) Kernel Builder: Kairos Godmode Potato Suite
 
-Repository ini berisi workflow **GitHub Actions** otomatis tingkat lanjut untuk mengompilasi Linux Kernel 4.19 pada **Xiaomi Redmi 10C (`fog`, `wind`, `rain` / Snapdragon 680)** yang dirancang dengan filosofi **"Kernel Master / Google Android Core Engineer"**: memeras performa maksimal dari hardware *potato* (RAM 4GB & SoC budget) agar sanggup melibas **Android 16** dengan mulus tanpa kompromi.
-
----
-
-## 🏛️ Arsitektur "Godmode Potato Suite": Rahasia Dapur Sepuh
-
-Di luar urusan RAM, performa Android ditentukan oleh interaksi antara **CPU Scheduler**, **GPU Compositor (SurfaceFlinger)**, **I/O Storage Bus**, dan **Binder IPC**. Berikut teknologi tingkat tinggi yang disematkan:
-
-### 1. FAS (Frame Aware Scheduling) & UCLAMP (Utilization Clamping)
-* **Masalah Snapdragon 680:** Memiliki 4x Core Big (Cortex-A73) dan 4x Core Little (Cortex-A53). Schedutil standar hanya bereaksi setelah antrian CPU menumpuk (butuh 64ms–96ms untuk mendeteksi beban). Akibatnya, saat jari menyentuh layar atau saat game butuh render frame 60/90fps, CPU terlambat menaikkan frekuensi dan frame langsung *drop (jank)*.
-* **Solusi FAS & UCLAMP:**
-  * **UCLAMP Task Grouping:** Menggantikan Schedtune lama. `top-app` (aplikasi/game yang sedang aktif di layar) otomatis diberi `uclamp.min = 20%` dan diprioritaskan ke Core Big A73 dengan flag `latency_sensitive = 1`.
-  * **Isolasi Background:** Aplikasi latar belakang dikurung ketat di Core Little A53 (`cpuset 0-3`) dengan plafon maksimal `uclamp.max = 30%`. Task background haram menyentuh Core Big saat layar menyala!
-  * **Schedutil Hyper-Ramp:** Parameter `up_rate_limit_us` disetel ke **500µs (0.5 milidetik)** untuk langsung loncat ke clock tinggi saat frame terancam drop, dan `down_rate_limit_us = 20000µs` agar clock tidak anjlok di tengah animasi scrolling.
-
-### 2. Storage I/O: BFQ Low-Latency Scheduler (Menyelamatkan eMMC/UFS 2.2)
-* **Masalah Potato Storage:** Storage budget memiliki bandwidth I/O terbatas. Ketika Google Play Services atau download berjalan di latar belakang, bus I/O macet total. Thread antarmuka UI terpaksa masuk ke status `D-State` (uninterruptible disk sleep), menyebabkan HP membeku (*freeze*) beberapa detik.
-* **Solusi:**
-  * Mengaktifkan **BFQ (Budget Fair Queueing)** (`CONFIG_IOSCHED_BFQ=y`) dengan mode `low_latency = 1` dan `slice_idle = 0`.
-  * BFQ menjamin aplikasi interaktif (sentuhan & UI) selalu mendapatkan slot I/O seketika, mengabaikan antrian background download.
-  * Menambah `read_ahead_kb = 512KB` pada storage internal untuk melipatgandakan kecepatan baca sequensial saat membuka file APK aplikasi.
-
-### 3. SurfaceFlinger & HWUI Pipeline Bypass (Zero Display Jitter)
-* `debug.sf.latch_unsignaled = 1`: SurfaceFlinger tidak perlu menunggu fence buffer yang tidak perlu, langsung menampilkan buffer frame siap saji ke panel layar.
-* `debug.sf.disable_backpressure = 1`: Menghilangkan backpressure buffer GPU yang sering memicu micro-stutter pada panel 90Hz.
-* `sys.use_fifo_ui = 1`: Thread render UI dinaikkan ke level penjadwalan Real-Time (SCHED_FIFO), mengalahkan prioritas proses background apa pun.
-
-### 4. Memory Subsystem: MGLRU + KSM + Z3FOLD + ZRAM ZSTD
-* **MGLRU (Multi-Gen LRU):** Mode agresif `enabled 7` memotong direct reclaim latency hingga 80%.
-* **KSM (Kernel Samepage Merging):** Memindai dan menggabungkan duplikasi halaman RAM dari runtime ART Android 16 (hemat 300MB–600MB RAM fisik murni).
-* **Z3FOLD & ZPOOL:** Kompresi memori densitas tinggi (3 frame terkompresi per 1 halaman fisik).
-* **ZRAM 4GB ZSTD:** Swap dinamis 4GB berkecepatan tinggi dengan `page-cluster = 0` (zero latency read-ahead). Kapasitas alamat memori efektif menjadi **~11 GB**.
-* **Zero-Debloat:** Menghilangkan `FTRACE`, `DYNAMIC_DEBUG`, `DEBUG_SPINLOCK` untuk membebaskan ~200MB slab RAM yang tidak bisa di-reclaim.
-
-### 5. Network Bufferbloat Kill: Google BBR + FQ-CoDel
-* Memadukan queue discipline `fq_codel` dengan algoritma TCP BBR Google. Ping game online (Mobile Legends, PUBG, FF) tetap stabil tanpa lonjakan 200ms+ meski Wi-Fi/sinyal 4G sedang ramai.
-
-### 6. Root & Hiding: KernelSU-Next + SUSFS v2.3.0
-* Header kernel otomatis disinkronkan ke **`v2.3.0`**, kompatibel penuh dengan rilis terbaru [susfs4ksu-module sidex15 v2.3.0](https://github.com/sidex15/susfs4ksu-module/releases) tanpa issue *version mismatch*.
+Repository ini berisi workflow **GitHub Actions** otomatis tingkat lanjut untuk mengompilasi Linux Kernel 4.19 pada **Xiaomi Redmi 10C (`fog`, `wind`, `rain` / Snapdragon 680)** dengan konfigurasi **Godmode Potato Suite**.
 
 ---
 
-## 📌 Cara Push ke GitHub
+## 🔍 Hasil Survey Repositori Kernel Redmi 10C (fog/sm6225)
 
-Buka PowerShell di folder `c:\Users\Administrator\Documents\kernel`, lalu jalankan:
+Berikut perbandingan mendalam seluruh kandidat repositori kernel untuk Redmi 10C yang ada di komunitas:
 
-```powershell
-git add .
-git commit -m "feat: implement Godmode Potato Suite (FAS/UCLAMP, BFQ, MGLRU, KSM, SurfaceFlinger, BBR)"
-git remote add origin https://github.com/<USERNAME-KAMU>/<NAMA-REPO-KAMU>.git
-git branch -M main
-git push -u origin main
-```
+| Repositori | Versi Linux | Status Terkini | Kelebihan & Fitur Utama | Catatan / Kompatibilitas |
+| :--- | :--- | :--- | :--- | :--- |
+| **`iDead-Project/ai-kernel_xiaomi_sm6225`** *(Default Rekomendasi)* | **4.19.333** | Paling Baru (2026) | - **ZRAM DEDUP** bawaan kernel.<br>- I/O scheduler **Anxiety** & **BFQ**.<br>- Branch `aistrix-ext` & `ai-ebpf-a16` (support modern BPF Android 16).<br>- `fog-perf_defconfig` & `fog-ksu-perf_defconfig` resmi. | **Sangat Direkomendasikan.** Dibangun khusus untuk `fog/rain/wind` dengan optimisasi paling modern. |
+| **`r0ddty/kernel_xiaomi_fog`** | **4.19.328** | Stabil (April 2026) | - Fork bersih dari `alternoegraha`.<br>- MGLRU backport bawaan.<br>- Stabil untuk ROM berbasis AOSP. | Pilihan kedua yang sangat bagus dan stabil. |
+| **`Evolution-X-Devices/kernel_xiaomi_sm6225`** | **4.19.33x** | Aktif (Sept 2026) | - Android 16 ready.<br>- Dioptimalkan untuk spes/spesn. | **Hati-hati:** Ditargetkan untuk **Redmi Note 11 (`spes`)** yang memakai layar AMOLED & chip sentuh berbeda. Flashing langsung ke `fog` (IPS LCD) berisiko layar sentuh / kamera mati. |
+| **`alternoegraha/wwy_kernel_xiaomi_fog_rebase`** | **4.19.157** | Diarsipkan | - Pohon dasar (*upstream*) pertama fog. | Sudah diarsipkan dan digantikan oleh rebase modern (`r0ddty` & `iDead-Project`). |
+
+> [!TIP]
+> Workflow ini secara default menggunakan **`iDead-Project/ai-kernel_xiaomi_sm6225`** (branch `aistrix-ext`), namun kamu tetap bisa menggantinya ke `r0ddty/kernel_xiaomi_fog` atau repositori lain secara instan lewat input box saat menekan tombol **Run workflow** di GitHub!
+
+---
+
+## 🏛️ Arsitektur "Godmode Potato Suite"
+
+1. **FAS (Frame Aware Scheduling) & UCLAMP:** `uclamp.min = 20%` pada `top-app` untuk mengunci frame rate mulus 60/90fps, background task dikarantina di Core Little (CPU 0–3) dengan `uclamp.max = 30%`.
+2. **Schedutil Hyper-Ramp:** `up_rate_limit_us = 500µs` (lompat frekuensi instan 0.5ms) dan `down_rate_limit_us = 20000µs`.
+3. **Storage I/O (Anxiety / BFQ Low-Latency):** Mencegah *D-State Freeze* saat ada download background di storage eMMC/UFS 2.2, plus `read_ahead_kb = 512KB`.
+4. **Memory Hardcore (MGLRU + KSM + ZRAM DEDUP + Z3FOLD + ZSTD):** Menggabungkan page identik ART Android 16, deduplikasi kompresi swap, membebaskan ruang memori setara **~11 GB**.
+5. **SurfaceFlinger Real-Time UI (SCHED_FIFO):** `sys.use_fifo_ui = 1` dan `debug.sf.latch_unsignaled = 1` untuk menghilangkan jeda render.
+6. **Network Google BBR + FQ-CoDel:** Mengatasi *bufferbloat* dan ping loncat di game online.
+7. **Root & Hiding:** KernelSU-Next terbaru + SUSFS **v2.3.0** tersinkronisasi penuh.
+
+---
+
+## 📌 Cara Upload Manual ke GitHub (Tanpa Terminal)
+
+1. Buat repository baru di [github.com/new](https://github.com/new) (pilih **Public**).
+2. Di halaman repo baru, klik link **"uploading an existing file"** (atau menu **Add file** > **Upload files**).
+3. Buka File Explorer di Windows, masuk ke folder:
+   `c:\Users\Administrator\Documents\kernel`
+4. **Drag & drop** folder `.github`, file [`README.md`](file:///c:/Users/Administrator/Documents/kernel/README.md), dan [`.gitignore`](file:///c:/Users/Administrator/Documents/kernel/.gitignore) ke browser GitHub.
+5. Klik **Commit changes**.
 
 ---
 
@@ -61,9 +48,16 @@ git push -u origin main
 1. Buka repo GitHub kamu > Masuk ke tab **Actions**.
 2. Pilih workflow **"Build Redmi 10C Kernel (KernelSU-Next + SUSFS v2.3.0 + Godmode Potato Suite)"**.
 3. Klik tombol **Run workflow**.
-4. Tunggu ~12–18 menit hingga proses selesai (centang hijau).
-5. Unduh file zip dari bagian **Artifacts**:
-   `KernelSU-Next-SUSFS-GodmodePotato-fog-xxxx.zip`
+4. Parameter default sudah otomatis diset ke pilihan terbaik:
+   - **Custom Kernel Name**: `Kairos` (bisa kamu ubah sesuka hati)
+   - **Kernel Source Repository**: `iDead-Project/ai-kernel_xiaomi_sm6225`
+   - **Kernel Source Branch**: `aistrix-ext`
+   - **Defconfig**: `vendor/fog-perf_defconfig`
+   - **Integrate KernelSU-Next**: `true`
+   - **Integrate SUSFS**: `true`
+   - **Enable Godmode Potato**: `true`
+5. Tunggu proses kompilasi selesai (~12–18 menit), lalu download file `.zip` di bagian **Artifacts**:
+   `Kairos-SUSFS-GodmodePotato-fog-xxxx.zip`
 
 ---
 
@@ -82,16 +76,16 @@ su -c ksu_susfs -v
 # 2. Cek status UCLAMP top-app (harus 20)
 su -c cat /dev/cpuctl/top-app/uclamp.min
 
-# 3. Cek I/O Scheduler aktif (harus [bfq])
+# 3. Cek I/O Scheduler aktif (harus [anxiety] atau [bfq])
 su -c cat /sys/block/mmcblk0/queue/scheduler
 
-# 4. Cek ramp-up Schedutil (harus 500 us)
+# 4. Cek respon cepat Schedutil (harus 500 us)
 su -c cat /sys/devices/system/cpu/cpufreq/policy0/schedutil/up_rate_limit_us
 
 # 5. Cek MGLRU (harus 7) & KSM (harus 1)
 su -c cat /sys/kernel/mm/lru_gen/enabled
 su -c cat /sys/kernel/mm/ksm/run
 
-# 6. Cek kapasitas ZRAM (harus ~4096 MB ZSTD)
+# 6. Cek kapasitas ZRAM (harus ~4096 MB dengan kompresor [zstd])
 su -c free -m
 ```

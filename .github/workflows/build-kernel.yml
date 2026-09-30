@@ -10,11 +10,11 @@ on:
       KERNEL_REPO:
         description: 'Kernel Source Repository (owner/repo)'
         required: true
-        default: 'iDead-Project/ai-kernel_xiaomi_sm6225'
+        default: 'alternoegraha/kernel_xiaomi_sm6225'
       KERNEL_BRANCH:
         description: 'Kernel Source Branch'
         required: true
-        default: 'aistrix-ext'
+        default: 'fog'
       DEFCONFIG:
         description: 'Defconfig name'
         required: true
@@ -90,8 +90,8 @@ jobs:
 
       - name: Clone Kernel Source
         run: |
-          REPO="${{ github.event.inputs.KERNEL_REPO || 'iDead-Project/ai-kernel_xiaomi_sm6225' }}"
-          BRANCH="${{ github.event.inputs.KERNEL_BRANCH || 'aistrix-ext' }}"
+          REPO="${{ github.event.inputs.KERNEL_REPO || 'alternoegraha/kernel_xiaomi_sm6225' }}"
+          BRANCH="${{ github.event.inputs.KERNEL_BRANCH || 'fog' }}"
           echo "===> Cloning Kernel Source from $REPO ($BRANCH)..."
           git clone --depth=1 "https://github.com/$REPO.git" -b "$BRANCH" "$GITHUB_WORKSPACE/kernel_source"
 
@@ -186,7 +186,6 @@ jobs:
           # ==============================================================
           CONFIG_IOSCHED_BFQ=y
           CONFIG_BFQ_GROUP_IOSCHED=y
-          CONFIG_IOSCHED_ANXIETY=y
           CONFIG_MQ_IOSCHED_DEADLINE=y
 
           # ==============================================================
@@ -317,7 +316,6 @@ jobs:
           # ==============================================================
           for queue in /sys/block/*/queue; do
             [ -d "$queue" ] || continue
-            # Coba set ke anxiety jika ada, fallback ke bfq
             if grep -q "anxiety" "$queue/scheduler"; then
               echo anxiety > "$queue/scheduler" 2>/dev/null || true
             else

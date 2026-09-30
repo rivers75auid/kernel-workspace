@@ -4,19 +4,20 @@ Repository ini berisi workflow **GitHub Actions** otomatis tingkat lanjut untuk 
 
 ---
 
-## 🔍 Hasil Survey Repositori Kernel Redmi 10C (fog/sm6225)
+## 🔍 Hasil Audit Khusus: `alternoegraha/kernel_xiaomi_sm6225` & Komunitas
 
-Berikut perbandingan mendalam seluruh kandidat repositori kernel untuk Redmi 10C yang ada di komunitas:
+Berdasarkan pencarian kata kunci spesifik `sm6225`, `fog`, `rain`, `wind`, dan `redmi 10c`:
 
-| Repositori | Versi Linux | Status Terkini | Kelebihan & Fitur Utama | Catatan / Kompatibilitas |
+| Repositori | Maintainer / Komunitas | Sublevel | Update Terakhir | Status & Keunggulan |
 | :--- | :--- | :--- | :--- | :--- |
-| **`iDead-Project/ai-kernel_xiaomi_sm6225`** *(Default Rekomendasi)* | **4.19.333** | Paling Baru (2026) | - **ZRAM DEDUP** bawaan kernel.<br>- I/O scheduler **Anxiety** & **BFQ**.<br>- Branch `aistrix-ext` & `ai-ebpf-a16` (support modern BPF Android 16).<br>- `fog-perf_defconfig` & `fog-ksu-perf_defconfig` resmi. | **Sangat Direkomendasikan.** Dibangun khusus untuk `fog/rain/wind` dengan optimisasi paling modern. |
-| **`r0ddty/kernel_xiaomi_fog`** | **4.19.328** | Stabil (April 2026) | - Fork bersih dari `alternoegraha`.<br>- MGLRU backport bawaan.<br>- Stabil untuk ROM berbasis AOSP. | Pilihan kedua yang sangat bagus dan stabil. |
-| **`Evolution-X-Devices/kernel_xiaomi_sm6225`** | **4.19.33x** | Aktif (Sept 2026) | - Android 16 ready.<br>- Dioptimalkan untuk spes/spesn. | **Hati-hati:** Ditargetkan untuk **Redmi Note 11 (`spes`)** yang memakai layar AMOLED & chip sentuh berbeda. Flashing langsung ke `fog` (IPS LCD) berisiko layar sentuh / kamera mati. |
-| **`alternoegraha/wwy_kernel_xiaomi_fog_rebase`** | **4.19.157** | Diarsipkan | - Pohon dasar (*upstream*) pertama fog. | Sudah diarsipkan dan digantikan oleh rebase modern (`r0ddty` & `iDead-Project`). |
+| **`alternoegraha/kernel_xiaomi_sm6225`** *(Default Rekomendasi)* | **@alternoegraha** (Lead Device Maintainer Resmi Redmi 10C) | **4.19.325** | **16 September 2026** | **Pohon Resmi Sumber Utama.** Memiliki branch `fog`, `fog-ksu`, dan `motregen`. Sudah mengintegrasikan **MGLRU** dan **ZRAM DEDUP** asli dari maintainer fog. |
+| **`rystX-OpenSource/rystx-kernel_xiaomi_sm6225`** | **@rystX-OpenSource** | **4.19.325** | **24 September 2026** | Paling baru di-push. Membawa branch eksperimental: BORE scheduler, EEVDF (backport Linux 6.6), dan kdrag0n fast LZ4. |
+| **`iDead-Project/ai-kernel_xiaomi_sm6225`** | **@iDead-Project** | **4.19.333** | April 2026 | Sublevel 4.19.333 tertinggi, Anxiety I/O scheduler, branch eBPF Android 16. |
+| **`r0ddty/kernel_xiaomi_fog`** | **@r0ddty** | **4.19.328** | April 2026 | Fork stabil Andromeda-mk2. |
 
-> [!TIP]
-> Workflow ini secara default menggunakan **`iDead-Project/ai-kernel_xiaomi_sm6225`** (branch `aistrix-ext`), namun kamu tetap bisa menggantinya ke `r0ddty/kernel_xiaomi_fog` atau repositori lain secara instan lewat input box saat menekan tombol **Run workflow** di GitHub!
+> [!NOTE]
+> **Siapa `@alternoegraha`?**
+> Dia adalah sesepuh pengembang yang merawat device tree, TWRP, dan pohon kernel resmi untuk Redmi 10C (`fog`) di komunitas custom ROM (AOSPA Paranoid, LineageOS, dll). Repositori [`alternoegraha/kernel_xiaomi_sm6225`](https://github.com/alternoegraha/kernel_xiaomi_sm6225) adalah repositori resmi yang paling otentik.
 
 ---
 
@@ -48,10 +49,10 @@ Berikut perbandingan mendalam seluruh kandidat repositori kernel untuk Redmi 10C
 1. Buka repo GitHub kamu > Masuk ke tab **Actions**.
 2. Pilih workflow **"Build Redmi 10C Kernel (KernelSU-Next + SUSFS v2.3.0 + Godmode Potato Suite)"**.
 3. Klik tombol **Run workflow**.
-4. Parameter default sudah otomatis diset ke pilihan terbaik:
+4. Parameter default sudah otomatis disetel ke pohon resmi maintainer fog:
    - **Custom Kernel Name**: `Kairos` (bisa kamu ubah sesuka hati)
-   - **Kernel Source Repository**: `iDead-Project/ai-kernel_xiaomi_sm6225`
-   - **Kernel Source Branch**: `aistrix-ext`
+   - **Kernel Source Repository**: `alternoegraha/kernel_xiaomi_sm6225`
+   - **Kernel Source Branch**: `fog` (atau `motregen` / `fog-ksu`)
    - **Defconfig**: `vendor/fog-perf_defconfig`
    - **Integrate KernelSU-Next**: `true`
    - **Integrate SUSFS**: `true`

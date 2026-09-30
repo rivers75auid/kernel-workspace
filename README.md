@@ -11,7 +11,7 @@ Sebagai engineer kernel senior, keputusan harus **tegas, berbasis data silikon, 
 * **Prosesor Target:** Qualcomm Snapdragon 680 4G (SM6225)
   * Arsitektur: 4x Cortex-A73 (Kryo 265 Gold @ 2.4 GHz) + 4x Cortex-A53 (Kryo 265 Silver @ 1.9 GHz - In-Order).
 * **Kapasitas RAM:** 4GB LPDDR4X (Sangat sempit untuk Android 16).
-* **Storage Bus:** eMMC 5.1 / UFS 2.2 (Rawan D-State I/O bottleneck).
+* **Storage Bus:** UFS 2.2 (Universal Flash Storage 2.2 - Dual-Lane Full-Duplex, Write Booster, SCSI Queuing ~800–1000 MB/s).
 
 ---
 
@@ -88,7 +88,7 @@ su -c ksu_susfs -v
 su -c cat /dev/stune/top-app/schedtune.boost
 
 # 3. Cek I/O Scheduler aktif (harus [anxiety])
-su -c cat /sys/block/mmcblk0/queue/scheduler
+su -c "cat /sys/block/sda/queue/scheduler 2>/dev/null || cat /sys/block/mmcblk0/queue/scheduler"
 
 # 4. Cek respon cepat Schedutil (harus 500 us)
 su -c cat /sys/devices/system/cpu/cpufreq/policy0/schedutil/up_rate_limit_us

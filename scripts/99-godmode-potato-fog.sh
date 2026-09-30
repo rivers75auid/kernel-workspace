@@ -34,7 +34,7 @@ if [ -d "/dev/cpuset/top-app" ]; then
 fi
 
 # ==============================================================
-# 2. Storage I/O: Anxiety Flash Scheduler + 512KB Read-Ahead
+# 2. Storage I/O: UFS 2.2 / Flash SCSI Queue + Anxiety Scheduler
 # ==============================================================
 for queue in /sys/block/*/queue; do
   [ -d "$queue" ] || continue
@@ -46,6 +46,11 @@ for queue in /sys/block/*/queue; do
     echo 0 > "$queue/iosched/slice_idle" 2>/dev/null || true
   fi
   echo 512 > "$queue/read_ahead_kb" 2>/dev/null || true
+  # UFS 2.2 Full-Duplex SCSI Queue & Interrupt Affinity
+  echo 2 > "$queue/rq_affinity" 2>/dev/null || true
+  echo 0 > "$queue/iostats" 2>/dev/null || true
+  echo 64 > "$queue/nr_requests" 2>/dev/null || true
+  echo 0 > "$queue/add_random" 2>/dev/null || true
 done
 
 # ==============================================================

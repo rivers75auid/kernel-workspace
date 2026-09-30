@@ -32,6 +32,8 @@ extra_inc = '''#include <linux/cred.h>
 #include \"manager/manager_observer.h\"
 #include \"runtime/ksud_boot.h\"
 #include \"supercall/supercall.h\"
+extern int ksu_handle_execve_ksud(const char __user *filename_user,
+                                  const char __user *const __user *__argv);
 '''
 if 'manager_identity.h' not in c:
     c = c.replace('#include \"runtime/ksud.h\"', '#include \"runtime/ksud.h\"\\n' + extra_inc, 1)

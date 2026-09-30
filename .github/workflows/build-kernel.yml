@@ -44,6 +44,8 @@ on:
       - master
     paths:
       - '.github/workflows/build-kernel.yml'
+      - 'configs/**'
+      - 'scripts/**'
 
 jobs:
   build:
@@ -88,7 +90,7 @@ jobs:
 
       - name: Download Proton Clang Toolchain
         run: |
-          echo "===> Downloading Proton Clang 13..."
+          echo "===> Downloading Proton Clang..."
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git "$GITHUB_WORKSPACE/proton-clang"
 
       - name: Clone Kernel Source
@@ -146,27 +148,7 @@ jobs:
               fi
 
               echo "===> Mengaktifkan config KernelSU & SUSFS di defconfig..."
-              cat << 'EOF' >> "$DEFCONFIG_PATH"
-# KernelSU-Next & SUSFS v2.3.0 Configuration
-CONFIG_KSU=y
-CONFIG_KSU_DEBUG=n
-CONFIG_KSU_SUSFS=y
-CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_PATH=y
-CONFIG_KSU_SUSFS_SUS_MOUNT=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSUD=y
-CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
-CONFIG_KSU_SUSFS_SUS_KSTAT=y
-CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y
-CONFIG_KSU_SUSFS_TRY_UMOUNT=y
-CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-CONFIG_KSU_SUSFS_ENABLE_LOG=y
-CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-CONFIG_KSU_SUSFS_SUS_SU=n
-EOF
-              sed -i 's/^[ \t]*//' "$DEFCONFIG_PATH"
+              cat "$GITHUB_WORKSPACE/configs/ksu_susfs.config" >> "$DEFCONFIG_PATH"
             fi
           fi
 
@@ -188,66 +170,7 @@ EOF
 
           if [ "$OPT_GOD" = "true" ]; then
             echo "===> Mengaktifkan Godmode Potato Suite (WALT/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
-            cat << 'EOF' >> "$DEFCONFIG_PATH"
-# ==============================================================
-# 1. CPU Scheduling: Qualcomm WALT & Schedtune Engine (SM6225)
-# ==============================================================
-CONFIG_SCHED_WALT=y
-CONFIG_SCHED_TUNE=y
-CONFIG_SCHED_CORE_CTL=y
-CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-# CONFIG_SCHEDSTATS is not set
-
-# ==============================================================
-# 2. Storage I/O: Anxiety Flash Scheduler & BFQ Fallback
-# ==============================================================
-CONFIG_IOSCHED_ANXIETY=y
-CONFIG_DEFAULT_ANXIETY=y
-CONFIG_IOSCHED_BFQ=y
-CONFIG_BFQ_GROUP_IOSCHED=y
-CONFIG_DEFAULT_IOSCHED="anxiety"
-
-# ==============================================================
-# 3. Memory Subsystem: MGLRU, KSM, ZRAM DEDUP, Z3FOLD, ZSTD (4GB RAM)
-# ==============================================================
-CONFIG_LRU_GEN=y
-CONFIG_LRU_GEN_ENABLED=y
-# CONFIG_LRU_GEN_STATS is not set
-CONFIG_KSM=y
-CONFIG_ZPOOL=y
-CONFIG_Z3FOLD=y
-CONFIG_ZSWAP=y
-CONFIG_ZRAM=y
-CONFIG_ZRAM_DEDUP=y
-CONFIG_ZRAM_DEF_COMP_ZSTD=y
-CONFIG_ZRAM_DEF_COMP="zstd"
-CONFIG_ZRAM_WRITEBACK=y
-CONFIG_CRYPTO_ZSTD=y
-CONFIG_CRYPTO_LZ4=y
-CONFIG_PROCESS_RECLAIM=y
-CONFIG_COMPACTION=y
-CONFIG_PAGE_BOUNCE=y
-
-# ==============================================================
-# 4. Kernel Debloat: Stripping Debug & Tracing Bloat (~200MB RAM)
-# ==============================================================
-# CONFIG_DEBUG_KMEMLEAK is not set
-# CONFIG_PAGE_OWNER is not set
-# CONFIG_DEBUG_SPINLOCK is not set
-# CONFIG_DEBUG_MUTEXES is not set
-# CONFIG_FTRACE is not set
-# CONFIG_DYNAMIC_DEBUG is not set
-CONFIG_SLUB_DEBUG=n
-
-# ==============================================================
-# 5. Network Latency & Bufferbloat Mitigation (BBR + FQ)
-# ==============================================================
-CONFIG_TCP_CONG_ADVANCED=y
-CONFIG_TCP_CONG_BBR=y
-CONFIG_DEFAULT_TCP_CONG="bbr"
-CONFIG_NET_SCH_FQ_CODEL=y
-EOF
-            sed -i 's/^[ \t]*//' "$DEFCONFIG_PATH"
+            cat "$GITHUB_WORKSPACE/configs/godmode_potato.config" >> "$DEFCONFIG_PATH"
           fi
 
       - name: Build Kernel
@@ -302,146 +225,19 @@ EOF
           sed -i 's/device.name4=.*/device.name4=sm6225/' anykernel.sh
           sed -i 's/is_slot_device=0;/is_slot_device=auto;/' anykernel.sh
 
-          # Buat file script runtime Godmode Potato optimizer mandiri
-          cat << 'SCRIPT' > 99-godmode-potato-fog.sh
-#!/system/bin/sh
-# Tunggu sistem Android selesai boot sepenuhnya
-while [ "$(getprop sys.boot_completed)" != "1" ]; do
-  sleep 2
-done
-
-# ==============================================================
-# 1. CPU Scheduling: FAS (Frame Aware Scheduling) & Schedutil
-# ==============================================================
-for gov in /sys/devices/system/cpu/cpufreq/policy*/schedutil; do
-  [ -d "$gov" ] || continue
-  echo 500 > "$gov/up_rate_limit_us" 2>/dev/null || true
-  echo 20000 > "$gov/down_rate_limit_us" 2>/dev/null || true
-  echo 1000 > "$gov/rate_limit_us" 2>/dev/null || true
-done
-
-# Schedtune & WALT Boost untuk Kryo 265 Gold (4x A73)
-if [ -d "/dev/stune/top-app" ]; then
-  echo 15 > /dev/stune/top-app/schedtune.boost 2>/dev/null || true
-  echo 1 > /dev/stune/top-app/schedtune.prefer_idle 2>/dev/null || true
-fi
-if [ -d "/dev/stune/background" ]; then
-  echo 0 > /dev/stune/background/schedtune.boost 2>/dev/null || true
-  echo 0 > /dev/stune/background/schedtune.prefer_idle 2>/dev/null || true
-fi
-if [ -d "/dev/cpuset/background" ]; then
-  echo 0-3 > /dev/cpuset/background/cpus 2>/dev/null || true
-fi
-if [ -d "/dev/cpuset/top-app" ]; then
-  echo 0-7 > /dev/cpuset/top-app/cpus 2>/dev/null || true
-fi
-
-# ==============================================================
-# 2. Storage I/O: Anxiety Flash Scheduler + 512KB Read-Ahead
-# ==============================================================
-for queue in /sys/block/*/queue; do
-  [ -d "$queue" ] || continue
-  if grep -q "anxiety" "$queue/scheduler"; then
-    echo anxiety > "$queue/scheduler" 2>/dev/null || true
-  elif grep -q "bfq" "$queue/scheduler"; then
-    echo bfq > "$queue/scheduler" 2>/dev/null || true
-    echo 1 > "$queue/iosched/low_latency" 2>/dev/null || true
-    echo 0 > "$queue/iosched/slice_idle" 2>/dev/null || true
-  fi
-  echo 512 > "$queue/read_ahead_kb" 2>/dev/null || true
-done
-
-# ==============================================================
-# 3. Multi-Gen LRU (MGLRU) Aggressive Tiering
-# ==============================================================
-if [ -f "/sys/kernel/mm/lru_gen/enabled" ]; then
-  echo 7 > /sys/kernel/mm/lru_gen/enabled
-  echo 1000 > /sys/kernel/mm/lru_gen/min_ttl_ms 2>/dev/null || true
-fi
-
-# ==============================================================
-# 4. Kernel Samepage Merging (KSM) - Deduplikasi RAM ART
-# ==============================================================
-if [ -d "/sys/kernel/mm/ksm" ]; then
-  echo 1 > /sys/kernel/mm/ksm/run
-  echo 200 > /sys/kernel/mm/ksm/pages_to_scan
-  echo 500 > /sys/kernel/mm/ksm/sleep_millisecs
-  echo 1 > /sys/kernel/mm/ksm/deferred_timer 2>/dev/null || true
-fi
-
-# ==============================================================
-# 5. ZRAM Dynamic Reallocation (4GB ZSTD + DEDUP)
-# ==============================================================
-if [ -b "/dev/block/zram0" ]; then
-  swapoff /dev/block/zram0 2>/dev/null || true
-  echo 1 > /sys/block/zram0/reset 2>/dev/null || true
-  echo zstd > /sys/block/zram0/comp_algorithm 2>/dev/null || true
-  echo 4294967296 > /sys/block/zram0/disksize 2>/dev/null || true
-  mkswap /dev/block/zram0 2>/dev/null || true
-  swapon /dev/block/zram0 -p 32758 2>/dev/null || true
-fi
-
-# ==============================================================
-# 6. Virtual Memory, VFS Choke Prevention & I/O Tuning
-# ==============================================================
-echo 0 > /proc/sys/vm/page-cluster
-echo 160 > /proc/sys/vm/swappiness
-echo 70 > /proc/sys/vm/vfs_cache_pressure
-echo 5 > /proc/sys/vm/dirty_ratio
-echo 2 > /proc/sys/vm/dirty_background_ratio
-echo 200 > /proc/sys/vm/dirty_expire_centisecs
-echo 300 > /proc/sys/vm/dirty_writeback_centisecs
-echo 0 > /proc/sys/vm/watermark_boost_factor
-echo 125 > /proc/sys/vm/watermark_scale_factor
-echo 24300 > /proc/sys/vm/extra_free_kbytes
-echo 11520 > /proc/sys/vm/min_free_kbytes
-echo 50 > /proc/sys/vm/compaction_proactiveness 2>/dev/null || true
-
-# ==============================================================
-# 7. Process Reclaim Background Compression
-# ==============================================================
-if [ -d "/sys/module/process_reclaim/parameters" ]; then
-  echo 1 > /sys/module/process_reclaim/parameters/enable_process_reclaim
-  echo 50 > /sys/module/process_reclaim/parameters/pressure_min
-  echo 85 > /sys/module/process_reclaim/parameters/pressure_max
-  echo 512 > /sys/module/process_reclaim/parameters/per_swap_size
-  echo 10 > /sys/module/process_reclaim/parameters/swap_opt_eff
-fi
-
-# ==============================================================
-# 8. Android 16 SurfaceFlinger, LMKD & Real-Time UI Scheduling
-# ==============================================================
-setprop sys.use_fifo_ui 1
-setprop ro.lmk.kill_heaviest_task true
-setprop ro.lmk.use_psi true
-setprop ro.lmk.psi_complete_stall_ms 350
-setprop ro.lmk.psi_partial_stall_ms 100
-setprop ro.lmk.thrashing_limit 50
-setprop ro.lmk.thrashing_limit_decay 10
-setprop debug.sf.latch_unsignaled 1
-setprop debug.sf.disable_backpressure 1
-setprop debug.hwui.render_dirty_regions false
-setprop debug.hwui.use_buffer_age false
-
-# ==============================================================
-# 9. Network Bufferbloat Kill (Google BBR + FQ-CoDel)
-# ==============================================================
-echo fq_codel > /proc/sys/net/core/default_qdisc 2>/dev/null || true
-echo bbr > /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null || true
-SCRIPT
+          # Salin file script runtime Godmode Potato optimizer mandiri
+          cp "$GITHUB_WORKSPACE/scripts/99-godmode-potato-fog.sh" .
           chmod 755 99-godmode-potato-fog.sh
 
           # Tambahkan injeksi script ke anykernel.sh
-          cat << 'EOF' >> anykernel.sh
-
-# Injeksi script runtime Godmode Potato Suite untuk Android 16
-if [ -d "/data/adb/service.d" ]; then
-  ui_print " "
-  ui_print "-> Injecting Godmode Potato Runtime Optimizer..."
-  cp -f "$home/99-godmode-potato-fog.sh" /data/adb/service.d/99-godmode-potato-fog.sh
-  chmod 755 /data/adb/service.d/99-godmode-potato-fog.sh
-fi
-EOF
+          echo "" >> anykernel.sh
+          echo "# Injeksi script runtime Godmode Potato Suite untuk Android 16" >> anykernel.sh
+          echo 'if [ -d "/data/adb/service.d" ]; then' >> anykernel.sh
+          echo '  ui_print " "' >> anykernel.sh
+          echo '  ui_print "-> Injecting Godmode Potato Runtime Optimizer..."' >> anykernel.sh
+          echo '  cp -f "$home/99-godmode-potato-fog.sh" /data/adb/service.d/99-godmode-potato-fog.sh' >> anykernel.sh
+          echo '  chmod 755 /data/adb/service.d/99-godmode-potato-fog.sh' >> anykernel.sh
+          echo 'fi' >> anykernel.sh
 
           OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
 

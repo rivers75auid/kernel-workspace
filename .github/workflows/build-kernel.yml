@@ -133,10 +133,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/patches/dtc_Makefile" scripts/dtc/Makefile
 
           echo "===> Memperbaiki bug MemAvailable overflow / MGLRU counter leak..."
-          patch -p1 < "$GITHUB_WORKSPACE/patches/mglru_memavailable_fix.patch" || {
-            echo "[WARN] Patch mglru_memavailable_fix gagal diterapkan via patch -p1, mencoba fallback..."
-            git apply --reject "$GITHUB_WORKSPACE/patches/mglru_memavailable_fix.patch" || true
-          }
+          python3 "$GITHUB_WORKSPACE/scripts/patch-memavailable.py"
 
           if [ "$OPT_GOD" = "true" ]; then
             echo "===> Mengaktifkan Godmode Potato Suite (WALT/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."

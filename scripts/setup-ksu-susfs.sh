@@ -294,10 +294,14 @@ EOF
         python3 -c "
 with open('KernelSU-Next/kernel/hook/setuid_hook.c', 'r') as f:
     c = f.read()
+
+if '#include \"selinux/selinux.h\"' not in c:
+    c = '#include \"selinux/selinux.h\"\n' + c
+
 target = 'ksu_handle_umount(old_uid, new_uid);'
 replacement = '''ksu_handle_umount(old_uid, new_uid);
 #ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
-    {
+    if ((is_isolated_process(new_uid) || ksu_uid_should_umount(new_uid)) && is_zygote(current_cred())) {
         extern void susfs_try_umount_all(uid_t uid);
         susfs_try_umount_all(new_uid);
     }

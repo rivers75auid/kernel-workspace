@@ -113,17 +113,23 @@ fi
 # ==============================================================
 # 8. Android 16 SurfaceFlinger, LMKD & Real-Time UI Scheduling
 # ==============================================================
-setprop sys.use_fifo_ui 1
-setprop ro.lmk.kill_heaviest_task true
-setprop ro.lmk.use_psi true
-setprop ro.lmk.psi_complete_stall_ms 350
-setprop ro.lmk.psi_partial_stall_ms 100
-setprop ro.lmk.thrashing_limit 50
-setprop ro.lmk.thrashing_limit_decay 10
-setprop debug.sf.latch_unsignaled 1
-setprop debug.sf.disable_backpressure 1
-setprop debug.hwui.render_dirty_regions false
-setprop debug.hwui.use_buffer_age false
+# Gunakan resetprop jika tersedia agar kompatibel dengan SELinux & tidak memicu audit
+SETPROP="setprop"
+if command -v resetprop >/dev/null 2>&1; then
+  SETPROP="resetprop -n"
+fi
+
+$SETPROP sys.use_fifo_ui 1
+$SETPROP ro.lmk.kill_heaviest_task true
+$SETPROP ro.lmk.use_psi true
+$SETPROP ro.lmk.psi_complete_stall_ms 350
+$SETPROP ro.lmk.psi_partial_stall_ms 100
+$SETPROP ro.lmk.thrashing_limit 50
+$SETPROP ro.lmk.thrashing_limit_decay 10
+$SETPROP debug.sf.latch_unsignaled 1
+$SETPROP debug.sf.disable_backpressure 1
+$SETPROP debug.hwui.render_dirty_regions false
+$SETPROP debug.hwui.use_buffer_age false
 
 # ==============================================================
 # 9. Network Bufferbloat Kill (Google BBR + FQ-CoDel)

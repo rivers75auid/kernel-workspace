@@ -45,7 +45,7 @@ if 'ksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT
     c = c.replace(execve_target, execve_repl, 1)
 
 execveat_target = 'if ((int)PT_REGS_PARM1(regs) == AT_FDCWD &&\\n\\t    (int)PT_REGS_SYSCALL_PARM4(regs) == 0) {\\n\\t\\tif (current->pid != 1 && is_init(current_cred())) {'
-execveat_repl = 'if ((int)PT_REGS_PARM1(regs) == AT_FDCWD &&\\n\\t    (int)PT_REGS_SYSCALL_PARM4(regs) == 0) {\\n\\t\\tksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM3(regs));\\n\\t\\tif (current->pid != 1 && is_init(current_cred())) {'
+execveat_repl = 'ksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM3(regs));\\n\\n\\tif ((int)PT_REGS_PARM1(regs) == AT_FDCWD &&\\n\\t    (int)PT_REGS_SYSCALL_PARM4(regs) == 0) {\\n\\t\\tif (current->pid != 1 && is_init(current_cred())) {'
 if 'ksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM3(regs));' not in c:
     c = c.replace(execveat_target, execveat_repl, 1)
 

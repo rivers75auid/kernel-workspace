@@ -89,10 +89,11 @@ jobs:
             xz-utils \
             zip
 
-      - name: Download Proton Clang Toolchain
+      - name: Download ZyC Clang 16 Toolchain (Polly Optimized)
         run: |
-          echo "===> Downloading Proton Clang..."
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git "$GITHUB_WORKSPACE/proton-clang"
+          echo "===> Downloading ZyC Clang 16.0.6 (Optimized for Cortex-A73/A53 & Snapdragon 680)..."
+          mkdir -p "$GITHUB_WORKSPACE/zyc-clang"
+          curl -sSL "https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260807-release/Clang-16.0.6-20260807.tar.gz" | tar -xz -C "$GITHUB_WORKSPACE/zyc-clang"
 
       - name: Clone Kernel Source
         run: |
@@ -148,7 +149,7 @@ jobs:
           KNAME="${{ github.event.inputs.KERNEL_NAME }}"
           [ -z "$KNAME" ] && KNAME="Kairos"
 
-          export PATH="$GITHUB_WORKSPACE/proton-clang/bin:$PATH"
+          export PATH="$GITHUB_WORKSPACE/zyc-clang/bin:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
           export CC=clang

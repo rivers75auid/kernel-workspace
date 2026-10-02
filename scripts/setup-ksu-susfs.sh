@@ -295,22 +295,88 @@ EOF
 with open('KernelSU-Next/kernel/hook/setuid_hook.c', 'r') as f:
     c = f.read()
 
-if '#include \"selinux/selinux.h\"' not in c:
-    c = '#include \"selinux/selinux.h\"\n' + c
+headers = '''#include <linux/rcupdate.h>
+#include <linux/cred.h>
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs_def.h>
+#endif
+#include \"selinux/selinux.h\"
+'''
+if 'susfs_def.h' not in c:
+    c = headers + c
+
+helper = '''
+#ifdef CONFIG_KSU_SUSFS
+static inline bool is_child_of_zygote(void)
+{
+	bool res = false;
+	struct task_struct *parent;
+
+	if (is_zygote(current_cred()))
+		return true;
+
+	rcu_read_lock();
+	parent = rcu_dereference(current->real_parent);
+	if (parent) {
+		res = is_zygote(__task_cred(parent));
+	}
+	rcu_read_unlock();
+
+	return res;
+}
+#endif
+'''
+if 'is_child_of_zygote' not in c:
+    c = c.replace('int ksu_handle_setresuid(uid_t old_uid, uid_t new_uid)', helper + '\\nint ksu_handle_setresuid(uid_t old_uid, uid_t new_uid)', 1)
+
+state_target = '''	} else {
+#ifdef KSU_KPROBES_HOOK
+		ksu_clear_task_tracepoint_flag_if_needed(current);
+#endif
+    }'''
+
+state_repl = '''	} else {
+#ifdef KSU_KPROBES_HOOK
+		ksu_clear_task_tracepoint_flag_if_needed(current);
+#endif
+#ifdef CONFIG_KSU_SUSFS
+		if (is_appuid(new_uid) || is_isolated_process(new_uid)) {
+			task_lock(current);
+			current->susfs_task_state |= TASK_STRUCT_NON_ROOT_USER_APP_PROC;
+			task_unlock(current);
+		}
+#endif
+    }'''
+
+if state_target in c:
+    c = c.replace(state_target, state_repl, 1)
 
 target = 'ksu_handle_umount(old_uid, new_uid);'
 replacement = '''ksu_handle_umount(old_uid, new_uid);
 #ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
-    if ((is_isolated_process(new_uid) || ksu_uid_should_umount(new_uid)) && is_zygote(current_cred())) {
+    if (is_child_of_zygote() && (is_isolated_process(new_uid) || (is_appuid(new_uid) && ksu_uid_should_umount(new_uid)))) {
         extern void susfs_try_umount_all(uid_t uid);
         susfs_try_umount_all(new_uid);
     }
 #endif'''
 if target in c and 'susfs_try_umount_all' not in c:
     c = c.replace(target, replacement, 1)
-    with open('KernelSU-Next/kernel/hook/setuid_hook.c', 'w') as f:
-        f.write(c)
-    print('setuid_hook.c patched for SuSFS!')
+
+with open('KernelSU-Next/kernel/hook/setuid_hook.c', 'w') as f:
+    f.write(c)
+print('setuid_hook.c patched for SuSFS!')
+
+with open('KernelSU-Next/kernel/feature/kernel_umount.c', 'r') as f:
+    kc = f.read()
+
+target_zygote = 'bool is_zygote_child = is_zygote(current_cred());'
+repl_zygote = 'bool is_zygote_child = is_zygote(current_cred()) || (current->real_parent && is_zygote(current->real_parent->cred));'
+
+if target_zygote in kc:
+    kc = kc.replace(target_zygote, repl_zygote, 1)
+    with open('KernelSU-Next/kernel/feature/kernel_umount.c', 'w') as f:
+        f.write(kc)
+    print('kernel_umount.c patched for zygote child check!')
 
 with open('KernelSU-Next/kernel/selinux/rules.c', 'r') as f:
     c = f.read()

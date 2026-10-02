@@ -162,7 +162,65 @@ if target in c and 'ksu_handle_sys_reboot' not in c:
 
         echo "===> Memastikan header susfs_def.h terpasang di fs.h dan task_mmu.c..."
         sed -i '/#define _LINUX_FS_H/a #ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif' include/linux/fs.h || true
-        grep -q "susfs_def.h" fs/proc/task_mmu.c || sed -i '1i #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c || true
+        grep -q "susfs_def.h" fs/proc/task_mmu.c || sed -i '1i #ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c || true
+
+        echo "===> Menambahkan dukungan SUS_MAP ke header SuSFS..."
+        cat << 'EOF' >> include/linux/susfs_def.h
+
+#ifndef CMD_SUSFS_ADD_SUS_MAP
+#define CMD_SUSFS_ADD_SUS_MAP 0x60020
+#endif
+#ifndef AS_FLAGS_SUS_MAP
+#define AS_FLAGS_SUS_MAP 39
+#endif
+#ifndef SUSFS_IS_INODE_SUS_MAP
+#define SUSFS_IS_INODE_SUS_MAP(inode) \
+	(inode && inode->i_mapping && \
+	unlikely(test_bit(AS_FLAGS_SUS_MAP, &inode->i_mapping->flags)) && \
+	(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC))
+#endif
+EOF
+
+        cat << 'EOF' >> include/linux/susfs.h
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+struct st_susfs_sus_map {
+    char target_pathname[256];
+    int err;
+};
+void susfs_add_sus_map(void __user **user_info);
+#endif
+EOF
+
+        echo "===> Menerapkan hook SUS_MAP ke fs/proc/task_mmu.c..."
+        python3 -c "
+with open('fs/proc/task_mmu.c', 'r') as f:
+    c = f.read()
+
+target1 = 'struct inode *inode = file_inode(vma->vm_file);'
+repl1 = target1 + '''
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		if (SUSFS_IS_INODE_SUS_MAP(inode))
+			return;
+#endif'''
+if target1 in c and 'CONFIG_KSU_SUSFS_SUS_MAP' not in c:
+    c = c.replace(target1, repl1, 1)
+
+target2 = 'struct vm_area_struct *vma = v;'
+repl2 = target2 + '''
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+	if (vma->vm_file) {
+		if (SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
+			return 0;
+	}
+#endif'''
+if target2 in c and 'CONFIG_KSU_SUSFS_SUS_MAP' not in c:
+    c = c.replace(target2, repl2, 1)
+
+with open('fs/proc/task_mmu.c', 'w') as f:
+    f.write(c)
+print('task_mmu.c successfully patched for SUS_MAP!')
+"
 
         echo "===> Menyiapkan inisialisasi SUSFS..."
         sed -i 's/void susfs_init(void) {/late_initcall(susfs_init);\nvoid susfs_init(void) {/' fs/susfs.c || true
@@ -190,22 +248,57 @@ bool susfs_is_current_zygote_domain(void) {
     return is_zygote(current_cred());
 }
 
-#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+void susfs_add_sus_map(void __user **user_info) {
+	struct st_susfs_sus_map info = {0};
+	struct path path;
+	struct inode *inode = NULL;
+
+	if (copy_from_user(&info, (struct st_susfs_sus_map __user*)*user_info, sizeof(info))) {
+		info.err = -EFAULT;
+		goto out_copy_to_user;
+	}
+
+	info.err = kern_path(info.target_pathname, LOOKUP_FOLLOW, &path);
+	if (info.err) {
+		pr_err("susfs: failed opening file '%s'\n", info.target_pathname);
+		goto out_copy_to_user;
+	}
+
+	inode = d_inode(path.dentry);
+	if (!inode || !inode->i_mapping) {
+		pr_err("susfs: inode || inode->i_mapping is NULL\n");
+		info.err = -ENOENT;
+		goto out_path_put_path;
+	}
+	set_bit(AS_FLAGS_SUS_MAP, &inode->i_mapping->flags);
+	pr_info("susfs: pathname: '%s', is flagged as AS_FLAGS_SUS_MAP\n", info.target_pathname);
+	info.err = 0;
+out_path_put_path:
+	path_put(&path);
+out_copy_to_user:
+	if (copy_to_user(&((struct st_susfs_sus_map __user*)*user_info)->err, &info.err, sizeof(info.err))) {
+		info.err = -EFAULT;
+	}
+	pr_info("susfs: CMD_SUSFS_ADD_SUS_MAP -> ret: %d\n", info.err);
+}
+#endif
+
+#ifdef CONFIG_KSU_SUSFS
 extern bool susfs_is_mnt_devname_ksu(struct path *path);
 
 static bool ksu_should_umount(struct path *path) {
     if (!path) {
         return false;
     }
-#ifdef CONFIG_KSU_SUSFS
-    return susfs_is_mnt_devname_ksu(path);
-#else
+    if (susfs_is_mnt_devname_ksu(path)) {
+        return true;
+    }
     if (path->mnt && path->mnt->mnt_sb && path->mnt->mnt_sb->s_type) {
         const char *fstype = path->mnt->mnt_sb->s_type->name;
         return strcmp(fstype, "overlay") == 0;
     }
     return false;
-#endif
 }
 
 static int ksu_umount_mnt(struct path *path, int flags) {
@@ -353,7 +446,7 @@ if state_target in c:
 
 target = 'ksu_handle_umount(old_uid, new_uid);'
 replacement = '''ksu_handle_umount(old_uid, new_uid);
-#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+#ifdef CONFIG_KSU_SUSFS
     if (is_child_of_zygote() && (is_isolated_process(new_uid) || (is_appuid(new_uid) && ksu_uid_should_umount(new_uid)))) {
         extern void susfs_try_umount_all(uid_t uid);
         susfs_try_umount_all(new_uid);
@@ -438,6 +531,13 @@ struct ksu_susfs_features_cmd {
 static int ksu_handle_susfs_sys_reboot(unsigned int cmd, void __user **arg)
 {
 	switch (cmd) {
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+	case CMD_SUSFS_ADD_SUS_MAP: {
+		extern void susfs_add_sus_map(void __user **user_info);
+		susfs_add_sus_map(arg);
+		return 0;
+	}
+#endif
 	case CMD_SUSFS_SHOW_VERSION: {
 		struct ksu_susfs_version_cmd v = {0};
 		scnprintf(v.version, sizeof(v.version), "%s", SUSFS_VERSION);
@@ -515,6 +615,10 @@ static int ksu_handle_susfs_sys_reboot(unsigned int cmd, void __user **arg)
 #endif
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_OPEN_REDIRECT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_MAP\n");
 		p += n; remain -= n;
 #endif
 #ifdef CONFIG_KSU_SUSFS_SUS_SU
@@ -626,6 +730,11 @@ config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
 
 config KSU_SUSFS_OPEN_REDIRECT
     bool "Open redirect"
+    depends on KSU_SUSFS
+    default y
+
+config KSU_SUSFS_SUS_MAP
+    bool "Hide suspicious memory maps"
     depends on KSU_SUSFS
     default y
 

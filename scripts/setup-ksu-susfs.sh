@@ -21,38 +21,38 @@ if [ "$ENABLE_KSU" = "true" ]; then
     grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
     echo "===> Mengaktifkan hook setresuid, prctl, read, dan execve di syscall_table_hook.c..."
-    python3 -c "
+    cat > patch_sth.py << 'PYEOF'
 with open('KernelSU-Next/kernel/hook/syscall_table_hook.c', 'r') as f:
     c = f.read()
 
 extra_inc = '''#include <linux/cred.h>
-#include \"hook/setuid_hook.h\"
-#include \"manager/manager_identity.h\"
-#include \"manager/throne_tracker.h\"
-#include \"manager/manager_observer.h\"
-#include \"runtime/ksud_boot.h\"
-#include \"supercall/supercall.h\"
+#include "hook/setuid_hook.h"
+#include "manager/manager_identity.h"
+#include "manager/throne_tracker.h"
+#include "manager/manager_observer.h"
+#include "runtime/ksud_boot.h"
+#include "supercall/supercall.h"
 #ifdef CONFIG_KSU_SUSFS
 #include <linux/susfs.h>
 #include <linux/susfs_def.h>
 #ifndef SUSFS_VARIANT
-#define SUSFS_VARIANT \"NON-GKI\"
+#define SUSFS_VARIANT "NON-GKI"
 #endif
 #endif
 extern int ksu_handle_execve_ksud(const char __user *filename_user,
                                   const char __user *const __user *__argv);
 '''
 if 'manager_identity.h' not in c:
-    c = c.replace('#include \"runtime/ksud.h\"', '#include \"runtime/ksud.h\"\\n' + extra_inc, 1)
+    c = c.replace('#include "runtime/ksud.h"', '#include "runtime/ksud.h"\n' + extra_inc, 1)
 
 # Bridge execve and execveat to ksud_integration to trigger init second_stage and zygote post-fs-data
-execve_target = 'const char __user **filename_user =\\n\\t\\t(const char __user **)&PT_REGS_PARM1(regs);\\n\\tlong adb_ret = 0;\\n\\n\\tif (current->pid != 1 && is_init(current_cred())) {'
-execve_repl = 'const char __user **filename_user =\\n\\t\\t(const char __user **)&PT_REGS_PARM1(regs);\\n\\tlong adb_ret = 0;\\n\\n\\tksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM2(regs));\\n\\n\\tif (current->pid != 1 && is_init(current_cred())) {'
+execve_target = 'const char __user **filename_user =\n\t\t(const char __user **)&PT_REGS_PARM1(regs);\n\tlong adb_ret = 0;\n\n\tif (current->pid != 1 && is_init(current_cred())) {'
+execve_repl = 'const char __user **filename_user =\n\t\t(const char __user **)&PT_REGS_PARM1(regs);\n\tlong adb_ret = 0;\n\n\tksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM2(regs));\n\n\tif (current->pid != 1 && is_init(current_cred())) {'
 if 'ksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM2(regs));' not in c:
     c = c.replace(execve_target, execve_repl, 1)
 
-execveat_target = 'if ((int)PT_REGS_PARM1(regs) == AT_FDCWD &&\\n\\t    (int)PT_REGS_SYSCALL_PARM4(regs) == 0) {\\n\\t\\tif (current->pid != 1 && is_init(current_cred())) {'
-execveat_repl = 'ksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM3(regs));\\n\\n\\tif ((int)PT_REGS_PARM1(regs) == AT_FDCWD &&\\n\\t    (int)PT_REGS_SYSCALL_PARM4(regs) == 0) {\\n\\t\\tif (current->pid != 1 && is_init(current_cred())) {'
+execveat_target = 'if ((int)PT_REGS_PARM1(regs) == AT_FDCWD &&\n\t    (int)PT_REGS_SYSCALL_PARM4(regs) == 0) {\n\t\tif (current->pid != 1 && is_init(current_cred())) {'
+execveat_repl = 'ksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM3(regs));\n\n\tif ((int)PT_REGS_PARM1(regs) == AT_FDCWD &&\n\t    (int)PT_REGS_SYSCALL_PARM4(regs) == 0) {\n\t\tif (current->pid != 1 && is_init(current_cred())) {'
 if 'ksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM3(regs));' not in c:
     c = c.replace(execveat_target, execveat_repl, 1)
 
@@ -108,7 +108,7 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 			if (arg2 == CMD_SUSFS_ADD_SUS_PATH) {
 				int error = susfs_add_sus_path((struct st_susfs_sus_path __user*)arg3);
 				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\\n");
+					pr_info("susfs: copy_to_user() failed\n");
 				return 0;
 			}
 #endif
@@ -116,7 +116,7 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 			if (arg2 == CMD_SUSFS_ADD_SUS_MOUNT) {
 				int error = susfs_add_sus_mount((struct st_susfs_sus_mount __user*)arg3);
 				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\\n");
+					pr_info("susfs: copy_to_user() failed\n");
 				return 0;
 			}
 #endif
@@ -124,13 +124,13 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 			if (arg2 == CMD_SUSFS_ADD_SUS_KSTAT || arg2 == CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY) {
 				int error = susfs_add_sus_kstat((struct st_susfs_sus_kstat __user*)arg3);
 				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\\n");
+					pr_info("susfs: copy_to_user() failed\n");
 				return 0;
 			}
 			if (arg2 == CMD_SUSFS_UPDATE_SUS_KSTAT) {
 				int error = susfs_update_sus_kstat((struct st_susfs_sus_kstat __user*)arg3);
 				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\\n");
+					pr_info("susfs: copy_to_user() failed\n");
 				return 0;
 			}
 #endif
@@ -138,7 +138,7 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 			if (arg2 == CMD_SUSFS_ADD_TRY_UMOUNT) {
 				int error = susfs_add_try_umount((struct st_susfs_try_umount __user*)arg3);
 				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\\n");
+					pr_info("susfs: copy_to_user() failed\n");
 				return 0;
 			}
 #endif
@@ -146,7 +146,7 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 			if (arg2 == CMD_SUSFS_SET_UNAME) {
 				int error = susfs_set_uname((struct st_susfs_uname __user*)arg3);
 				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\\n");
+					pr_info("susfs: copy_to_user() failed\n");
 				return 0;
 			}
 #endif
@@ -155,7 +155,7 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 				int error = 0;
 				susfs_set_log(arg3 != 0);
 				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\\n");
+					pr_info("susfs: copy_to_user() failed\n");
 				return 0;
 			}
 #endif
@@ -163,7 +163,7 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 			if (arg2 == CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG) {
 				int error = susfs_set_cmdline_or_bootconfig((char __user*)arg3);
 				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\\n");
+					pr_info("susfs: copy_to_user() failed\n");
 				return 0;
 			}
 #endif
@@ -171,7 +171,7 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 			if (arg2 == CMD_SUSFS_ADD_OPEN_REDIRECT) {
 				int error = susfs_add_open_redirect((struct st_susfs_open_redirect __user*)arg3);
 				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\\n");
+					pr_info("susfs: copy_to_user() failed\n");
 				return 0;
 			}
 #endif
@@ -187,7 +187,7 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 				int len = strlen(SUSFS_VERSION);
 				error = copy_to_user((void __user*)arg3, (void*)SUSFS_VERSION, len + 1);
 				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\\n");
+					pr_info("susfs: copy_to_user() failed\n");
 				return 0;
 			}
 			if (arg2 == CMD_SUSFS_SHOW_ENABLED_FEATURES) {
@@ -240,7 +240,7 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 #endif
 				error = copy_to_user((void __user*)arg3, (void*)&enabled_features, sizeof(enabled_features));
 				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\\n");
+					pr_info("susfs: copy_to_user() failed\n");
 				return 0;
 			}
 			if (arg2 == CMD_SUSFS_SHOW_VARIANT) {
@@ -248,7 +248,7 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 				int len = strlen(SUSFS_VARIANT);
 				error = copy_to_user((void __user*)arg3, (void*)SUSFS_VARIANT, len + 1);
 				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\\n");
+					pr_info("susfs: copy_to_user() failed\n");
 				return 0;
 			}
 		}
@@ -273,17 +273,18 @@ static long ksu_sth_read(const struct pt_regs *regs)
 #endif
 '''
 if 'ksu_sth_setresuid' not in c:
-    c = c.replace('void __init ksu_syscall_table_hook_init(void)', handlers + '\\nvoid __init ksu_syscall_table_hook_init(void)', 1)
+    c = c.replace('void __init ksu_syscall_table_hook_init(void)', handlers + '\nvoid __init ksu_syscall_table_hook_init(void)', 1)
 
-hooks_anchor = '{ __NR_newfstatat, ksu_sth_newfstatat },\\n#endif'
-hooks_repl = '{ __NR_newfstatat, ksu_sth_newfstatat },\\n#endif\\n#ifdef __NR_setresuid\\n\\t\\t{ __NR_setresuid, ksu_sth_setresuid },\\n#endif\\n#ifdef __NR_prctl\\n\\t\\t{ __NR_prctl, ksu_sth_prctl },\\n#endif\\n#ifdef __NR_read\\n\\t\\t{ __NR_read, ksu_sth_read },\\n#endif'
+hooks_anchor = '{ __NR_newfstatat, ksu_sth_newfstatat },\n#endif'
+hooks_repl = '{ __NR_newfstatat, ksu_sth_newfstatat },\n#endif\n#ifdef __NR_setresuid\n\t\t{ __NR_setresuid, ksu_sth_setresuid },\n#endif\n#ifdef __NR_prctl\n\t\t{ __NR_prctl, ksu_sth_prctl },\n#endif\n#ifdef __NR_read\n\t\t{ __NR_read, ksu_sth_read },\n#endif'
 if '{ __NR_setresuid' not in c:
     c = c.replace(hooks_anchor, hooks_repl, 1)
 
 with open('KernelSU-Next/kernel/hook/syscall_table_hook.c', 'w') as f:
     f.write(c)
 print('[+] syscall_table_hook.c successfully patched for non-GKI!')
-"
+PYEOF
+    python3 patch_sth.py && rm -f patch_sth.py
 
     echo "===> Menerapkan hook reboot.c untuk handshake KernelSU..."
     python3 -c "

@@ -55,6 +55,46 @@ extra_inc = '''#include <linux/cred.h>
 extern int ksu_handle_execve_ksud(const char __user *filename_user,
                                   const char __user *const __user *__argv);
 '''
+if 'fake_ino' not in c:
+    old_stat = '''static long ksu_sth_newfstatat(const struct pt_regs *regs)
+{
+	int *dfd = (int *)&PT_REGS_PARM1(regs);
+	const char __user **filename_user =
+		(const char __user **)&PT_REGS_PARM2(regs);
+	int *flags = (int *)&PT_REGS_SYSCALL_PARM4(regs);
+
+	ksu_handle_stat(dfd, filename_user, flags);
+
+	return ksu_sth_call_orig(__NR_newfstatat, regs);
+}'''
+    new_stat = '''static long ksu_sth_newfstatat(const struct pt_regs *regs)
+{
+	int *dfd = (int *)&PT_REGS_PARM1(regs);
+	const char __user **filename_user =
+		(const char __user **)&PT_REGS_PARM2(regs);
+	int *flags = (int *)&PT_REGS_SYSCALL_PARM4(regs);
+	long ret;
+	char pbuf[32];
+
+	ksu_handle_stat(dfd, filename_user, flags);
+
+	ret = ksu_sth_call_orig(__NR_newfstatat, regs);
+
+	if (ret == 0 && filename_user && *filename_user) {
+		if (strncpy_from_user_nofault(pbuf, *filename_user, sizeof(pbuf)) > 0) {
+			if (!strcmp(pbuf, "/data/local/tmp") || !strcmp(pbuf, "/data/local/tmp/")) {
+				unsigned long fake_ino = 42;
+				struct stat __user *st = (struct stat __user *)PT_REGS_PARM3(regs);
+				(void)copy_to_user(&st->st_ino, &fake_ino, sizeof(fake_ino));
+			}
+		}
+	}
+
+	return ret;
+}'''
+    if old_stat in c:
+        c = c.replace(old_stat, new_stat, 1)
+
 if 'manager_identity.h' not in c:
     c = c.replace('#include "runtime/ksud.h"', '#include "runtime/ksud.h"\n' + extra_inc, 1)
 
@@ -693,19 +733,116 @@ struct ksu_susfs_features_cmd {
 static int ksu_handle_susfs_sys_reboot(unsigned int cmd, void __user **arg)
 {
 	switch (cmd) {
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-	case CMD_SUSFS_ADD_SUS_PATH: {
-		extern int susfs_add_sus_path(struct st_susfs_sus_path* __user user_info);
-		return susfs_add_sus_path((struct st_susfs_sus_path __user*)*arg);
+	case 0x55550: /* CMD_SUSFS_ADD_SUS_PATH */
+	case 0x55553: /* CMD_SUSFS_ADD_SUS_PATH_LOOP */ {
+		struct {
+			char target_pathname[256];
+			int err;
+		} info = {0};
+		struct path p;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+
+		if (!kern_path(info.target_pathname, LOOKUP_FOLLOW, &p)) {
+			struct inode *inode = d_inode(p.dentry);
+			if (inode) {
+				spin_lock(&inode->i_lock);
+				inode->i_state |= (1 << 25);
+				spin_unlock(&inode->i_lock);
+			}
+			path_put(&p);
+		}
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
 	}
-#endif
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-	case CMD_SUSFS_ADD_SUS_MAP: {
+	case 0x60020: /* CMD_SUSFS_ADD_SUS_MAP */ {
 		extern void susfs_add_sus_map(void __user **user_info);
 		susfs_add_sus_map(arg);
 		return 0;
 	}
-#endif
+	case 0x55560: /* CMD_SUSFS_ADD_SUS_MOUNT */
+	case 0x55561: /* CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS */
+	case 0x60010: /* CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING */ {
+		struct {
+			unsigned int enabled;
+			int err;
+		} info = {0};
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x55570: /* CMD_SUSFS_ADD_SUS_KSTAT */
+	case 0x55571: /* CMD_SUSFS_UPDATE_SUS_KSTAT */
+	case 0x55572: /* CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY */ {
+		char buf[512] = {0};
+		if (copy_from_user(buf, (void __user*)*arg, sizeof(buf)))
+			return -EFAULT;
+		*(int *)(buf + sizeof(buf) - sizeof(int)) = 0;
+		*(int *)(buf + 360) = 0;
+		*(int *)(buf + 364) = 0;
+		if (copy_to_user((void __user*)*arg, buf, sizeof(buf)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x55580: /* CMD_SUSFS_ADD_TRY_UMOUNT */ {
+		struct {
+			char target_pathname[256];
+			int mnt_mode;
+			int err;
+		} info = {0};
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x555c0: /* CMD_SUSFS_ADD_OPEN_REDIRECT */ {
+		struct {
+			char target_pathname[256];
+			char redirected_pathname[256];
+			unsigned int uid_scheme;
+			int err;
+		} info = {0};
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x55590: /* CMD_SUSFS_SET_UNAME */ {
+		struct {
+			char release[65];
+			char version[65];
+			int err;
+		} info = {0};
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x555a0: /* CMD_SUSFS_ENABLE_LOG */ {
+		struct {
+			unsigned int enabled;
+			int err;
+		} info = {0};
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+		susfs_set_log(info.enabled != 0);
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
 	case CMD_SUSFS_SHOW_VERSION: {
 		struct ksu_susfs_version_cmd v = {0};
 		scnprintf(v.version, sizeof(v.version), "%s", SUSFS_VERSION);

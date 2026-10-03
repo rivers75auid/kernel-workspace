@@ -17,7 +17,7 @@ if [ "$ENABLE_KSU" = "true" ]; then
     ln -sfn "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next/kernel" drivers/kernelsu
     test -f drivers/kernelsu/Kconfig || { echo "[-] ERROR: drivers/kernelsu/Kconfig does not exist!"; ls -la drivers/kernelsu; exit 1; }
     echo "[+] Verified drivers/kernelsu/Kconfig exists."
-    sed -i 's/KSU_VERSION_FALLBACK := 1/KSU_VERSION_FALLBACK := 33294/' "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next/kernel/Kbuild" || true
+    sed -i 's/KSU_VERSION_FALLBACK := 1/KSU_VERSION_FALLBACK := 11998/' "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next/kernel/Kbuild" || true
     sed -i 's/KSU_VERSION_TAG_FALLBACK := v0.0.1/KSU_VERSION_TAG_FALLBACK := v3.4.0/' "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next/kernel/Kbuild" || true
     grep -q "kernelsu" drivers/Makefile || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> drivers/Makefile
     grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig

@@ -177,7 +177,7 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            KSU_VERSION_OVERRIDE=33294 \
+            KSU_VERSION_OVERRIDE=11998 \
             KSU_VERSION_TAG_OVERRIDE=v3.4.0 \
             Image.gz-dtb dtbo.img dtb.img || \
           make -j$(nproc --all) ARCH=arm64 O=out \
@@ -185,7 +185,7 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            KSU_VERSION_OVERRIDE=33294 \
+            KSU_VERSION_OVERRIDE=11998 \
             KSU_VERSION_TAG_OVERRIDE=v3.4.0
 
       - name: Package with AnyKernel3
@@ -252,3 +252,40 @@ jobs:
           path: output/*
           retention-days: 14
           compression-level: 6
+
+      - name: Send Telegram Notification & File
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ] && exit 0
+
+          JOB_STATUS="${{ job.status }}"
+          VARIANT="${{ matrix.variant }}"
+          ZIP_FILE="$GITHUB_WORKSPACE/output/${{ env.ZIP_NAME }}"
+
+          if [ "$JOB_STATUS" = "success" ]; then
+            MSG="✅ *Kernel Build Success!*%0A%0A*Device:* Redmi 10C (fog)%0A*Variant:* ${VARIANT}%0A*Package:* \`${{ env.ZIP_NAME }}\`%0A*Commit:* \`${{ github.sha }}\`"
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "text=${MSG}" \
+              -d "parse_mode=Markdown"
+
+            if [ -f "$ZIP_FILE" ]; then
+              FILE_SIZE=$(stat -c%s "$ZIP_FILE" 2>/dev/null || stat -f%z "$ZIP_FILE" 2>/dev/null || echo 0)
+              if [ "$FILE_SIZE" -lt 49000000 ]; then
+                echo "===> Uploading ZIP to Telegram..."
+                curl -s -F "chat_id=${TELEGRAM_CHAT_ID}" \
+                  -F "document=@${ZIP_FILE}" \
+                  -F "caption=🚀 Flashable Kernel ZIP (${VARIANT})" \
+                  "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
+              fi
+            fi
+          else
+            MSG="❌ *Kernel Build Failed!*%0A%0A*Device:* Redmi 10C (fog)%0A*Variant:* ${VARIANT}%0A*Commit:* \`${{ github.sha }}\`%0A*Run:* [View Action Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              -d "text=${MSG}" \
+              -d "parse_mode=Markdown"
+          fi

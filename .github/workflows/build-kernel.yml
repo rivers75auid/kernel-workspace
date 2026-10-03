@@ -50,8 +50,16 @@ on:
 
 jobs:
   build:
-    name: Compile Android Kernel
+    name: Build (${{ matrix.variant }})
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: "SUSFS"
+            enable_susfs: "true"
+          - variant: "Vanilla"
+            enable_susfs: "false"
 
     steps:
       - name: Maximize Build Space
@@ -110,7 +118,7 @@ jobs:
           chmod +x "$GITHUB_WORKSPACE/scripts/setup-ksu-susfs.sh"
           bash "$GITHUB_WORKSPACE/scripts/setup-ksu-susfs.sh" \
             "${{ github.event.inputs.ENABLE_KSU_NEXT || 'true' }}" \
-            "${{ github.event.inputs.ENABLE_SUSFS || 'true' }}" \
+            "${{ matrix.enable_susfs }}" \
             "${{ github.event.inputs.SUSFS_VERSION_TAG || 'v2.3.0' }}" \
             "${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
 
@@ -230,7 +238,7 @@ jobs:
           fi
 
           DATE=$(date +'%Y%m%d-%H%M')
-          ZIP_NAME="${KNAME}-SUSFS-Potato-fog-${DATE}.zip"
+          ZIP_NAME="${KNAME}-${{ matrix.variant }}-Potato-fog-${DATE}.zip"
           zip -r9 "$ZIP_NAME" * -x .git README.md *placeholder
 
           mkdir -p "$GITHUB_WORKSPACE/output"

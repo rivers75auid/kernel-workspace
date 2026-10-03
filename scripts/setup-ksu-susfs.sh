@@ -17,6 +17,8 @@ if [ "$ENABLE_KSU" = "true" ]; then
     ln -sfn "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next/kernel" drivers/kernelsu
     test -f drivers/kernelsu/Kconfig || { echo "[-] ERROR: drivers/kernelsu/Kconfig does not exist!"; ls -la drivers/kernelsu; exit 1; }
     echo "[+] Verified drivers/kernelsu/Kconfig exists."
+    sed -i 's/KSU_VERSION_FALLBACK := 1/KSU_VERSION_FALLBACK := 33294/' "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next/kernel/Kbuild" || true
+    sed -i 's/KSU_VERSION_TAG_FALLBACK := v0.0.1/KSU_VERSION_TAG_FALLBACK := v3.4.0/' "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next/kernel/Kbuild" || true
     grep -q "kernelsu" drivers/Makefile || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> drivers/Makefile
     grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
@@ -84,15 +86,12 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 		if (!ksu_is_manager_appid_valid()) {
 			track_throne(false);
 		}
-		if (!is_manager() && current_uid().val != 0) {
-			return ksu_sth_call_orig(__NR_prctl, regs);
-		}
-		if (is_manager()) {
-			ksu_install_fd();
-		}
 		if (arg2 == 2) {
 			int version = KSU_VERSION;
 			int flags = 0;
+			if (!arg3 || !arg4) {
+				return ksu_sth_call_orig(__NR_prctl, regs);
+			}
 			if (is_manager()) {
 				flags |= 0x2; // KSU_GET_INFO_FLAG_MANAGER
 			}
@@ -101,6 +100,12 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 			if (copy_to_user((void __user *)arg4, &flags, sizeof(flags)))
 				return -EFAULT;
 			return 0;
+		}
+		if (!is_manager() && current_uid().val != 0) {
+			return ksu_sth_call_orig(__NR_prctl, regs);
+		}
+		if (is_manager()) {
+			ksu_install_fd();
 		}
 #ifdef CONFIG_KSU_SUSFS
 		if (current_uid().val == 0) {
@@ -898,6 +903,11 @@ endmenu
 EOF
     fi
 
-    echo "===> Mengaktifkan config KernelSU & SUSFS di defconfig..."
-    cat "$GITHUB_WORKSPACE/configs/ksu_susfs.config" >> "$DEFCONFIG_PATH"
+    if [ "$ENABLE_SUS" = "true" ]; then
+        echo "===> Mengaktifkan config KernelSU & SUSFS di defconfig..."
+        cat "$GITHUB_WORKSPACE/configs/ksu_susfs.config" >> "$DEFCONFIG_PATH"
+    else
+        echo "===> Mengaktifkan config KernelSU Vanilla (No-SUSFS) di defconfig..."
+        cat "$GITHUB_WORKSPACE/configs/ksu_vanilla.config" >> "$DEFCONFIG_PATH"
+    fi
 fi

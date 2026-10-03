@@ -1,4 +1,4 @@
-name: Build Redmi 10C Kernel (KernelSU-Next + SUSFS v2.3.0 + Godmode Potato Suite)
+name: Build Redmi 10C Kernel (KernelSU-Next + SUSFS v2.3.0 + Potato Suite)
 
 on:
   workflow_dispatch:
@@ -33,8 +33,8 @@ on:
         description: 'SUSFS Header Version Tag'
         required: true
         default: 'v2.3.0'
-      ENABLE_GODMODE_POTATO:
-        description: 'Enable Godmode Suite (WALT/Schedtune, Anxiety I/O, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)'
+      ENABLE_POTATO_SUITE:
+        description: 'Enable Potato Tuning Suite (WALT/Schedtune, Anxiety I/O, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)'
         required: true
         type: boolean
         default: true
@@ -114,11 +114,11 @@ jobs:
             "${{ github.event.inputs.SUSFS_VERSION_TAG || 'v2.3.0' }}" \
             "${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
 
-      - name: Apply Custom Kernel Name & Godmode Potato Optimizations
+      - name: Apply Custom Kernel Name & Potato Suite Optimizations
         run: |
           cd "$GITHUB_WORKSPACE/kernel_source"
-          OPT_GOD="${{ github.event.inputs.ENABLE_GODMODE_POTATO }}"
-          [ -z "$OPT_GOD" ] && OPT_GOD="true"
+          OPT_POTATO="${{ github.event.inputs.ENABLE_POTATO_SUITE }}"
+          [ -z "$OPT_POTATO" ] && OPT_POTATO="true"
           KNAME="${{ github.event.inputs.KERNEL_NAME }}"
           [ -z "$KNAME" ] && KNAME="Kairos"
 
@@ -126,19 +126,19 @@ jobs:
           [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/fog-perf_defconfig"
           DEFCONFIG_PATH="arch/arm64/configs/$DEFCONFIG"
 
-          echo "===> Menyetel Nama Kernel ke: $KNAME..."
+          echo "===> Setting Kernel Name to: $KNAME..."
           sed -i '/CONFIG_LOCALVERSION/d' "$DEFCONFIG_PATH"
           echo "CONFIG_LOCALVERSION=\"-${KNAME}\"" >> "$DEFCONFIG_PATH"
 
-          echo "===> Memperbaiki duplikasi yamltree.o & hostprogs di scripts/dtc/Makefile..."
+          echo "===> Fixing yamltree.o duplicate & hostprogs in scripts/dtc/Makefile..."
           cp "$GITHUB_WORKSPACE/patches/dtc_Makefile" scripts/dtc/Makefile
 
-          echo "===> Memperbaiki bug MemAvailable overflow / MGLRU counter leak..."
+          echo "===> Fixing MemAvailable overflow / MGLRU counter leak..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-memavailable.py"
 
-          if [ "$OPT_GOD" = "true" ]; then
-            echo "===> Mengaktifkan Godmode Potato Suite (WALT/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
-            cat "$GITHUB_WORKSPACE/configs/godmode_potato.config" >> "$DEFCONFIG_PATH"
+          if [ "$OPT_POTATO" = "true" ]; then
+            echo "===> Enabling Potato Tuning Suite (WALT/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
+            cat "$GITHUB_WORKSPACE/configs/potato.config" >> "$DEFCONFIG_PATH"
           fi
 
       - name: Build Kernel
@@ -193,9 +193,9 @@ jobs:
           cp "$GITHUB_WORKSPACE/configs/anykernel.sh" .
           sed -i "s/Kairos/${KNAME}/g" anykernel.sh
 
-          # Salin file script runtime Godmode Potato optimizer mandiri
-          cp "$GITHUB_WORKSPACE/scripts/99-godmode-potato-fog.sh" .
-          chmod 755 99-godmode-potato-fog.sh
+          # Copy Potato optimizer runtime script
+          cp "$GITHUB_WORKSPACE/scripts/99-potato-fog.sh" .
+          chmod 755 99-potato-fog.sh
 
           OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
 
@@ -230,7 +230,7 @@ jobs:
           fi
 
           DATE=$(date +'%Y%m%d-%H%M')
-          ZIP_NAME="${KNAME}-SUSFS-GodmodePotato-fog-${DATE}.zip"
+          ZIP_NAME="${KNAME}-SUSFS-Potato-fog-${DATE}.zip"
           zip -r9 "$ZIP_NAME" * -x .git README.md *placeholder
 
           mkdir -p "$GITHUB_WORKSPACE/output"

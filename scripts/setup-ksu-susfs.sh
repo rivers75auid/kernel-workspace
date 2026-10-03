@@ -107,46 +107,40 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 			if (arg2 == CMD_SUSFS_ADD_SUS_PATH) {
 				int error = susfs_add_sus_path((struct st_susfs_sus_path __user*)arg3);
-				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\n");
+				(void)copy_to_user((void __user*)arg5, &error, sizeof(error));
 				return 0;
 			}
 #endif
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 			if (arg2 == CMD_SUSFS_ADD_SUS_MOUNT) {
 				int error = susfs_add_sus_mount((struct st_susfs_sus_mount __user*)arg3);
-				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\n");
+				(void)copy_to_user((void __user*)arg5, &error, sizeof(error));
 				return 0;
 			}
 #endif
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 			if (arg2 == CMD_SUSFS_ADD_SUS_KSTAT || arg2 == CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY) {
 				int error = susfs_add_sus_kstat((struct st_susfs_sus_kstat __user*)arg3);
-				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\n");
+				(void)copy_to_user((void __user*)arg5, &error, sizeof(error));
 				return 0;
 			}
 			if (arg2 == CMD_SUSFS_UPDATE_SUS_KSTAT) {
 				int error = susfs_update_sus_kstat((struct st_susfs_sus_kstat __user*)arg3);
-				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\n");
+				(void)copy_to_user((void __user*)arg5, &error, sizeof(error));
 				return 0;
 			}
 #endif
 #ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
 			if (arg2 == CMD_SUSFS_ADD_TRY_UMOUNT) {
 				int error = susfs_add_try_umount((struct st_susfs_try_umount __user*)arg3);
-				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\n");
+				(void)copy_to_user((void __user*)arg5, &error, sizeof(error));
 				return 0;
 			}
 #endif
 #ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
 			if (arg2 == CMD_SUSFS_SET_UNAME) {
 				int error = susfs_set_uname((struct st_susfs_uname __user*)arg3);
-				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\n");
+				(void)copy_to_user((void __user*)arg5, &error, sizeof(error));
 				return 0;
 			}
 #endif
@@ -154,24 +148,21 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 			if (arg2 == CMD_SUSFS_ENABLE_LOG) {
 				int error = 0;
 				susfs_set_log(arg3 != 0);
-				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\n");
+				(void)copy_to_user((void __user*)arg5, &error, sizeof(error));
 				return 0;
 			}
 #endif
 #ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
 			if (arg2 == CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG) {
 				int error = susfs_set_cmdline_or_bootconfig((char __user*)arg3);
-				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\n");
+				(void)copy_to_user((void __user*)arg5, &error, sizeof(error));
 				return 0;
 			}
 #endif
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
 			if (arg2 == CMD_SUSFS_ADD_OPEN_REDIRECT) {
 				int error = susfs_add_open_redirect((struct st_susfs_open_redirect __user*)arg3);
-				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\n");
+				(void)copy_to_user((void __user*)arg5, &error, sizeof(error));
 				return 0;
 			}
 #endif
@@ -186,8 +177,7 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 				int error = 0;
 				int len = strlen(SUSFS_VERSION);
 				error = copy_to_user((void __user*)arg3, (void*)SUSFS_VERSION, len + 1);
-				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\n");
+				(void)copy_to_user((void __user*)arg5, &error, sizeof(error));
 				return 0;
 			}
 			if (arg2 == CMD_SUSFS_SHOW_ENABLED_FEATURES) {
@@ -239,16 +229,14 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 				enabled_features |= (1 << 14);
 #endif
 				error = copy_to_user((void __user*)arg3, (void*)&enabled_features, sizeof(enabled_features));
-				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\n");
+				(void)copy_to_user((void __user*)arg5, &error, sizeof(error));
 				return 0;
 			}
 			if (arg2 == CMD_SUSFS_SHOW_VARIANT) {
 				int error = 0;
 				int len = strlen(SUSFS_VARIANT);
 				error = copy_to_user((void __user*)arg3, (void*)SUSFS_VARIANT, len + 1);
-				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
-					pr_info("susfs: copy_to_user() failed\n");
+				(void)copy_to_user((void __user*)arg5, &error, sizeof(error));
 				return 0;
 			}
 		}

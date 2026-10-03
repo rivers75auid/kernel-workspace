@@ -1,7 +1,7 @@
 #!/system/bin/sh
 # ==============================================================
-# Godmode Potato Suite Runtime Optimizer (Android 16 / SM6225)
-# Tunggu sistem Android selesai boot sepenuhnya
+# Potato Suite Runtime Optimizer (Android 16 / SM6225)
+# Wait for Android system boot completion
 # ==============================================================
 while [ "$(getprop sys.boot_completed)" != "1" ]; do
   sleep 2

@@ -32,6 +32,13 @@ extra_inc = '''#include <linux/cred.h>
 #include \"manager/manager_observer.h\"
 #include \"runtime/ksud_boot.h\"
 #include \"supercall/supercall.h\"
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs.h>
+#include <linux/susfs_def.h>
+#ifndef SUSFS_VARIANT
+#define SUSFS_VARIANT \"NON-GKI\"
+#endif
+#endif
 extern int ksu_handle_execve_ksud(const char __user *filename_user,
                                   const char __user *const __user *__argv);
 '''
@@ -77,6 +84,9 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 		if (!ksu_is_manager_appid_valid()) {
 			track_throne(false);
 		}
+		if (!is_manager() && current_uid().val != 0) {
+			return ksu_sth_call_orig(__NR_prctl, regs);
+		}
 		if (is_manager()) {
 			ksu_install_fd();
 		}
@@ -92,6 +102,157 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 				return -EFAULT;
 			return 0;
 		}
+#ifdef CONFIG_KSU_SUSFS
+		if (current_uid().val == 0) {
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+			if (arg2 == CMD_SUSFS_ADD_SUS_PATH) {
+				int error = susfs_add_sus_path((struct st_susfs_sus_path __user*)arg3);
+				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
+					pr_info("susfs: copy_to_user() failed\\n");
+				return 0;
+			}
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+			if (arg2 == CMD_SUSFS_ADD_SUS_MOUNT) {
+				int error = susfs_add_sus_mount((struct st_susfs_sus_mount __user*)arg3);
+				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
+					pr_info("susfs: copy_to_user() failed\\n");
+				return 0;
+			}
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+			if (arg2 == CMD_SUSFS_ADD_SUS_KSTAT || arg2 == CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY) {
+				int error = susfs_add_sus_kstat((struct st_susfs_sus_kstat __user*)arg3);
+				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
+					pr_info("susfs: copy_to_user() failed\\n");
+				return 0;
+			}
+			if (arg2 == CMD_SUSFS_UPDATE_SUS_KSTAT) {
+				int error = susfs_update_sus_kstat((struct st_susfs_sus_kstat __user*)arg3);
+				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
+					pr_info("susfs: copy_to_user() failed\\n");
+				return 0;
+			}
+#endif
+#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+			if (arg2 == CMD_SUSFS_ADD_TRY_UMOUNT) {
+				int error = susfs_add_try_umount((struct st_susfs_try_umount __user*)arg3);
+				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
+					pr_info("susfs: copy_to_user() failed\\n");
+				return 0;
+			}
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+			if (arg2 == CMD_SUSFS_SET_UNAME) {
+				int error = susfs_set_uname((struct st_susfs_uname __user*)arg3);
+				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
+					pr_info("susfs: copy_to_user() failed\\n");
+				return 0;
+			}
+#endif
+#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
+			if (arg2 == CMD_SUSFS_ENABLE_LOG) {
+				int error = 0;
+				susfs_set_log(arg3 != 0);
+				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
+					pr_info("susfs: copy_to_user() failed\\n");
+				return 0;
+			}
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+			if (arg2 == CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG) {
+				int error = susfs_set_cmdline_or_bootconfig((char __user*)arg3);
+				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
+					pr_info("susfs: copy_to_user() failed\\n");
+				return 0;
+			}
+#endif
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+			if (arg2 == CMD_SUSFS_ADD_OPEN_REDIRECT) {
+				int error = susfs_add_open_redirect((struct st_susfs_open_redirect __user*)arg3);
+				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
+					pr_info("susfs: copy_to_user() failed\\n");
+				return 0;
+			}
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+			if (arg2 == CMD_SUSFS_ADD_SUS_MAP) {
+				extern void susfs_add_sus_map(void __user **user_info);
+				susfs_add_sus_map((void __user **)arg3);
+				return 0;
+			}
+#endif
+			if (arg2 == CMD_SUSFS_SHOW_VERSION) {
+				int error = 0;
+				int len = strlen(SUSFS_VERSION);
+				error = copy_to_user((void __user*)arg3, (void*)SUSFS_VERSION, len + 1);
+				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
+					pr_info("susfs: copy_to_user() failed\\n");
+				return 0;
+			}
+			if (arg2 == CMD_SUSFS_SHOW_ENABLED_FEATURES) {
+				int error = 0;
+				u64 enabled_features = 0;
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+				enabled_features |= (1 << 0);
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+				enabled_features |= (1 << 1);
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+				enabled_features |= (1 << 2);
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+				enabled_features |= (1 << 3);
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+				enabled_features |= (1 << 4);
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_OVERLAYFS
+				enabled_features |= (1 << 5);
+#endif
+#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+				enabled_features |= (1 << 6);
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+				enabled_features |= (1 << 7);
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+				enabled_features |= (1 << 8);
+#endif
+#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
+				enabled_features |= (1 << 9);
+#endif
+#ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+				enabled_features |= (1 << 10);
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+				enabled_features |= (1 << 11);
+#endif
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+				enabled_features |= (1 << 12);
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+				enabled_features |= (1 << 13);
+#endif
+#ifdef CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT
+				enabled_features |= (1 << 14);
+#endif
+				error = copy_to_user((void __user*)arg3, (void*)&enabled_features, sizeof(enabled_features));
+				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
+					pr_info("susfs: copy_to_user() failed\\n");
+				return 0;
+			}
+			if (arg2 == CMD_SUSFS_SHOW_VARIANT) {
+				int error = 0;
+				int len = strlen(SUSFS_VARIANT);
+				error = copy_to_user((void __user*)arg3, (void*)SUSFS_VARIANT, len + 1);
+				if (copy_to_user((void __user*)arg5, &error, sizeof(error)))
+					pr_info("susfs: copy_to_user() failed\\n");
+				return 0;
+			}
+		}
+#endif
 	}
 
 	return ksu_sth_call_orig(__NR_prctl, regs);

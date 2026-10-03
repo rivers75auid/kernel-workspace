@@ -50,16 +50,8 @@ on:
 
 jobs:
   build:
-    name: Build (${{ matrix.variant }})
+    name: Build Kernel (SUSFS)
     runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - variant: "SUSFS"
-            enable_susfs: "true"
-          - variant: "Vanilla"
-            enable_susfs: "false"
 
     steps:
       - name: Maximize Build Space
@@ -118,7 +110,7 @@ jobs:
           chmod +x "$GITHUB_WORKSPACE/scripts/setup-ksu-susfs.sh"
           bash "$GITHUB_WORKSPACE/scripts/setup-ksu-susfs.sh" \
             "${{ github.event.inputs.ENABLE_KSU_NEXT || 'true' }}" \
-            "${{ matrix.enable_susfs }}" \
+            "true" \
             "${{ github.event.inputs.SUSFS_VERSION_TAG || 'v2.3.0' }}" \
             "${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
 
@@ -238,7 +230,7 @@ jobs:
           fi
 
           DATE=$(date +'%Y%m%d-%H%M')
-          ZIP_NAME="${KNAME}-${{ matrix.variant }}-Potato-fog-${DATE}.zip"
+          ZIP_NAME="${KNAME}-SUSFS-Potato-fog-${DATE}.zip"
           zip -r9 "$ZIP_NAME" * -x .git README.md *placeholder
 
           mkdir -p "$GITHUB_WORKSPACE/output"
@@ -262,7 +254,7 @@ jobs:
           [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ] && exit 0
 
           JOB_STATUS="${{ job.status }}"
-          VARIANT="${{ matrix.variant }}"
+          VARIANT="SUSFS"
           ZIP_FILE="$GITHUB_WORKSPACE/output/${{ env.ZIP_NAME }}"
 
           if [ "$JOB_STATUS" = "success" ]; then

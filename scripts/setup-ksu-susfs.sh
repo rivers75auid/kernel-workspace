@@ -28,6 +28,8 @@ with open('KernelSU-Next/kernel/hook/syscall_table_hook.c', 'r') as f:
     c = f.read()
 
 extra_inc = '''#include <linux/cred.h>
+#include <linux/syscalls.h>
+#include <asm/unistd.h>
 #include "hook/setuid_hook.h"
 #include "manager/manager_identity.h"
 #include "manager/throne_tracker.h"
@@ -40,6 +42,15 @@ extra_inc = '''#include <linux/cred.h>
 #ifndef SUSFS_VARIANT
 #define SUSFS_VARIANT "NON-GKI"
 #endif
+#endif
+#ifndef __NR_prctl
+#define __NR_prctl 167
+#endif
+#ifndef __NR_setresuid
+#define __NR_setresuid 147
+#endif
+#ifndef __NR_read
+#define __NR_read 63
 #endif
 extern int ksu_handle_execve_ksud(const char __user *filename_user,
                                   const char __user *const __user *__argv);
@@ -60,7 +71,6 @@ if 'ksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT
 
 # Add setresuid, prctl, and read handlers
 handlers = '''
-#ifdef __NR_setresuid
 static long ksu_sth_setresuid(const struct pt_regs *regs)
 {
 	uid_t ruid = (uid_t)PT_REGS_PARM1(regs);
@@ -71,9 +81,7 @@ static long ksu_sth_setresuid(const struct pt_regs *regs)
 
 	return ksu_sth_call_orig(__NR_setresuid, regs);
 }
-#endif
 
-#ifdef __NR_prctl
 static long ksu_sth_prctl(const struct pt_regs *regs)
 {
 	int option = (int)PT_REGS_PARM1(regs);
@@ -250,9 +258,7 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 
 	return ksu_sth_call_orig(__NR_prctl, regs);
 }
-#endif
 
-#ifdef __NR_read
 extern bool ksu_init_rc_hook;
 extern void ksu_handle_sys_read(unsigned int fd);
 static long ksu_sth_read(const struct pt_regs *regs)
@@ -263,13 +269,12 @@ static long ksu_sth_read(const struct pt_regs *regs)
 	}
 	return ksu_sth_call_orig(__NR_read, regs);
 }
-#endif
 '''
 if 'ksu_sth_setresuid' not in c:
     c = c.replace('void __init ksu_syscall_table_hook_init(void)', handlers + '\nvoid __init ksu_syscall_table_hook_init(void)', 1)
 
 hooks_anchor = '{ __NR_newfstatat, ksu_sth_newfstatat },\n#endif'
-hooks_repl = '{ __NR_newfstatat, ksu_sth_newfstatat },\n#endif\n#ifdef __NR_setresuid\n\t\t{ __NR_setresuid, ksu_sth_setresuid },\n#endif\n#ifdef __NR_prctl\n\t\t{ __NR_prctl, ksu_sth_prctl },\n#endif\n#ifdef __NR_read\n\t\t{ __NR_read, ksu_sth_read },\n#endif'
+hooks_repl = '{ __NR_newfstatat, ksu_sth_newfstatat },\n#endif\n\t\t{ __NR_setresuid, ksu_sth_setresuid },\n\t\t{ __NR_prctl, ksu_sth_prctl },\n\t\t{ __NR_read, ksu_sth_read },'
 if '{ __NR_setresuid' not in c:
     c = c.replace(hooks_anchor, hooks_repl, 1)
 
@@ -688,6 +693,12 @@ struct ksu_susfs_features_cmd {
 static int ksu_handle_susfs_sys_reboot(unsigned int cmd, void __user **arg)
 {
 	switch (cmd) {
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	case CMD_SUSFS_ADD_SUS_PATH: {
+		extern int susfs_add_sus_path(struct st_susfs_sus_path* __user user_info);
+		return susfs_add_sus_path((struct st_susfs_sus_path __user*)*arg);
+	}
+#endif
 #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 	case CMD_SUSFS_ADD_SUS_MAP: {
 		extern void susfs_add_sus_map(void __user **user_info);

@@ -7,6 +7,9 @@ while [ "$(getprop sys.boot_completed)" != "1" ]; do
   sleep 2
 done
 
+# Tunggu ROM post_boot (init.qcom.post_boot.sh) selesai agar tidak ter-override
+sleep 10
+
 # ==============================================================
 # 1. CPU Scheduling: FAS (Frame Aware Scheduling) & Schedutil
 # ==============================================================

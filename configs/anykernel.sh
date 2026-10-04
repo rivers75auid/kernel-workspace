@@ -38,6 +38,8 @@ PATCH_VBMETA_FLAG=auto;
 . tools/ak3-core.sh;
 
 # Injeksi script runtime Potato Suite untuk Android 16
+mount /data 2>/dev/null || true
+mkdir -p /data/adb/service.d 2>/dev/null || true
 if [ -d "/data/adb/service.d" ]; then
   ui_print " "
   ui_print "-> Injecting Potato Runtime Optimizer..."

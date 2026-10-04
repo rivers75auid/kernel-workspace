@@ -280,8 +280,8 @@ EOF
 with open('fs/proc/task_mmu.c', 'r') as f:
     c = f.read()
 
-target = 'static int show_map_vma(struct seq_file *m, struct vm_area_struct *vma)'
-replacement = '''#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+target_vma = 'static void\nshow_map_vma(struct seq_file *m, struct vm_area_struct *vma)\n{\n'
+repl_vma = '''#ifdef CONFIG_KSU_SUSFS_SUS_MAP
 static inline bool susfs_is_vma_sus_map(struct vm_area_struct *vma) {
     struct file *file = vma->vm_file;
     if (file && SUSFS_IS_INODE_SUS_MAP(file_inode(file))) {
@@ -291,38 +291,38 @@ static inline bool susfs_is_vma_sus_map(struct vm_area_struct *vma) {
 }
 #endif
 
-static int show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
+static void
+show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
 {
 #ifdef CONFIG_KSU_SUSFS_SUS_MAP
     if (susfs_is_vma_sus_map(vma)) {
-        return 0;
+        return;
     }
-#endif'''
+#endif
+'''
 
-if target in c and 'susfs_is_vma_sus_map' not in c:
-    c = c.replace(target, replacement, 1)
-    with open('fs/proc/task_mmu.c', 'w') as f:
-        f.write(c)
+if target_vma in c and 'susfs_is_vma_sus_map' not in c:
+    c = c.replace(target_vma, repl_vma, 1)
     print('show_map_vma hooked for sus_map!')
 
-with open('fs/proc/task_mmu.c', 'r') as f:
-    c = f.read()
-
-target_smap = 'static int show_smap(struct seq_file *m, void *v)'
-replacement_smap = '''static int show_smap(struct seq_file *m, void *v)
+target_smap = 'static int show_smap(struct seq_file *m, void *v)\n{\n\tstruct vm_area_struct *vma = v;\n\tstruct mem_size_stats mss;\n'
+repl_smap = '''static int show_smap(struct seq_file *m, void *v)
 {
-    struct vm_area_struct *vma = v;
+	struct vm_area_struct *vma = v;
+	struct mem_size_stats mss;
 #ifdef CONFIG_KSU_SUSFS_SUS_MAP
-    if (susfs_is_vma_sus_map(vma)) {
-        return 0;
-    }
-#endif'''
+	if (susfs_is_vma_sus_map(vma)) {
+		return 0;
+	}
+#endif
+'''
 
 if target_smap in c and 'susfs_is_vma_sus_map(vma)' not in c:
-    c = c.replace(target_smap, replacement_smap, 1)
-    with open('fs/proc/task_mmu.c', 'w') as f:
-        f.write(c)
+    c = c.replace(target_smap, repl_smap, 1)
     print('show_smap hooked for sus_map!')
+
+with open('fs/proc/task_mmu.c', 'w') as f:
+    f.write(c)
 "
 
         echo "===> Menambahkan implementasi susfs_add_sus_map ke fs/susfs.c..."

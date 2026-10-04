@@ -19,6 +19,27 @@ if [ "$ENABLE_KSU" = "true" ]; then
     echo "[+] Verified drivers/kernelsu/Kconfig exists."
     sed -i 's/KSU_VERSION_FALLBACK := 1/KSU_VERSION_FALLBACK := 11998/' "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next/kernel/Kbuild" || true
     sed -i 's/KSU_VERSION_TAG_FALLBACK := v0.0.1/KSU_VERSION_TAG_FALLBACK := v3.4.0/' "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next/kernel/Kbuild" || true
+
+    echo "===> Mengizinkan Multi-Manager (KernelSU-Next + ReSukiSU)..."
+    python3 -c "
+with open('KernelSU-Next/kernel/manager/apk_sign.c', 'r') as f:
+    c = f.read()
+
+target = 'return check_v2_signature(path, EXPECTED_MANAGER_SIZE, EXPECTED_MANAGER_HASH);'
+replacement = '''if (check_v2_signature(path, EXPECTED_MANAGER_SIZE, EXPECTED_MANAGER_HASH)) return true;
+\t/* ReSukiSU Manager support */
+\tif (check_v2_signature(path, 0x377, \"d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64\")) return true;
+\t/* Official KernelSU Manager support */
+\tif (check_v2_signature(path, 0x033b, \"c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6\")) return true;
+\treturn false;'''
+
+if target in c:
+    c = c.replace(target, replacement, 1)
+    with open('KernelSU-Next/kernel/manager/apk_sign.c', 'w') as f:
+        f.write(c)
+    print('[+] Multi-manager signatures patched into KernelSU-Next!')
+"
+
     grep -q "kernelsu" drivers/Makefile || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> drivers/Makefile
     grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
@@ -134,6 +155,9 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 		if (!ksu_is_manager_appid_valid()) {
 			track_throne(false);
 		}
+		if (!is_manager() && current_uid().val != 0) {
+			return ksu_sth_call_orig(__NR_prctl, regs);
+		}
 		if (arg2 == 2) {
 			int version = KSU_VERSION;
 			int flags = 0;
@@ -148,9 +172,6 @@ static long ksu_sth_prctl(const struct pt_regs *regs)
 			if (copy_to_user((void __user *)arg4, &flags, sizeof(flags)))
 				return -EFAULT;
 			return 0;
-		}
-		if (!is_manager() && current_uid().val != 0) {
-			return ksu_sth_call_orig(__NR_prctl, regs);
 		}
 		if (is_manager()) {
 			ksu_install_fd();
@@ -332,9 +353,13 @@ hook = '''
 #ifdef CONFIG_KSU
 	{
 		extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
-		ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
-		if (magic1 == 0xDEADBEEF)
-			return 0;
+		if (magic1 == 0xDEADBEEF) {
+			if (current_uid().val == 0) {
+				ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+				return 0;
+			}
+			return -EPERM;
+		}
 	}
 #endif
 '''

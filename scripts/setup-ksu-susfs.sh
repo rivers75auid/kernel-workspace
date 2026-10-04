@@ -77,6 +77,45 @@ extern int ksu_handle_execve_ksud(const char __user *filename_user,
                                   const char __user *const __user *__argv);
 '''
 
+old_stat = '''static long ksu_sth_newfstatat(const struct pt_regs *regs)
+{
+	int *dfd = (int *)&PT_REGS_PARM1(regs);
+	const char __user **filename_user =
+		(const char __user **)&PT_REGS_PARM2(regs);
+	int *flags = (int *)&PT_REGS_SYSCALL_PARM4(regs);
+
+	ksu_handle_stat(dfd, filename_user, flags);
+
+	return ksu_sth_call_orig(__NR_newfstatat, regs);
+}'''
+new_stat = '''static long ksu_sth_newfstatat(const struct pt_regs *regs)
+{
+	int *dfd = (int *)&PT_REGS_PARM1(regs);
+	const char __user **filename_user =
+		(const char __user **)&PT_REGS_PARM2(regs);
+	int *flags = (int *)&PT_REGS_SYSCALL_PARM4(regs);
+	long ret;
+	char pbuf[32];
+
+	ksu_handle_stat(dfd, filename_user, flags);
+
+	ret = ksu_sth_call_orig(__NR_newfstatat, regs);
+
+	if (ret == 0 && filename_user && *filename_user) {
+		if (strncpy_from_user_nofault(pbuf, *filename_user, sizeof(pbuf)) > 0) {
+			if (!strcmp(pbuf, "/data/local/tmp") || !strcmp(pbuf, "/data/local/tmp/")) {
+				unsigned long fake_ino = 2;
+				struct stat __user *st = (struct stat __user *)PT_REGS_PARM3(regs);
+				(void)copy_to_user(&st->st_ino, &fake_ino, sizeof(fake_ino));
+			}
+		}
+	}
+
+	return ret;
+}'''
+if old_stat in c:
+    c = c.replace(old_stat, new_stat, 1)
+
 if 'manager_identity.h' not in c:
     c = c.replace('#include "runtime/ksud.h"', '#include "runtime/ksud.h"\n' + extra_inc, 1)
 
@@ -903,7 +942,9 @@ static int ksu_handle_susfs_sys_reboot(unsigned int cmd, void __user **arg)
 #ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
 		susfs_set_cmdline_or_bootconfig((char __user*)*arg);
 #endif
-		(void)copy_to_user((void __user*)(*arg + SUSFS_FAKE_CMDLINE_OR_BOOTCONFIG_SIZE), &err, sizeof(err));
+		/* ReSukiSU ksud uses 8192 buffer, simonpunk uses 4096; write 0 to both offsets */
+		(void)copy_to_user((void __user*)(*arg + 4096), &err, sizeof(err));
+		(void)copy_to_user((void __user*)(*arg + 8192), &err, sizeof(err));
 		return 0;
 	}
 	case 0x555c0: /* CMD_SUSFS_ADD_OPEN_REDIRECT */ {

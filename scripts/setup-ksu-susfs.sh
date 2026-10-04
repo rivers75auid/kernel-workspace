@@ -63,6 +63,454 @@ if t1 in c and t2 in c:
     print('[+] sucompat.c successfully patched for 4.19!')
 "
 
+    echo "===> Menyesuaikan ReSukiSU supercall dispatch untuk SuSFS 4.19..."
+    cat > patch_dispatch.py << 'PYEOF'
+path = 'KernelSU/kernel/supercall/dispatch.c'
+with open(path, 'r') as f:
+    dc = f.read()
+
+pos_start = dc.find('#ifdef CONFIG_KSU_SUSFS\nint ksu_handle_susfs_cmd')
+pos_end = dc.find('#ifdef CONFIG_KSU_TOOLKIT_SUPPORT', pos_start)
+
+if pos_start != -1 and pos_end != -1:
+    susfs_cmd_handler = '''#ifdef CONFIG_KSU_SUSFS
+#ifndef SUSFS_MAX_VERSION_BUFSIZE
+#define SUSFS_MAX_VERSION_BUFSIZE 16
+#endif
+#ifndef SUSFS_MAX_VARIANT_BUFSIZE
+#define SUSFS_MAX_VARIANT_BUFSIZE 16
+#endif
+#ifndef SUSFS_ENABLED_FEATURES_SIZE
+#define SUSFS_ENABLED_FEATURES_SIZE 8192
+#endif
+#ifndef SUSFS_VARIANT
+#define SUSFS_VARIANT "NON-GKI"
+#endif
+
+struct ksu_susfs_version_cmd {
+	char version[SUSFS_MAX_VERSION_BUFSIZE];
+	int err;
+};
+struct ksu_susfs_variant_cmd {
+	char variant[SUSFS_MAX_VARIANT_BUFSIZE];
+	int err;
+};
+struct ksu_susfs_features_cmd {
+	char features[SUSFS_ENABLED_FEATURES_SIZE];
+	int err;
+};
+struct st_susfs_sus_kstat_v2 {
+	bool is_statically;
+	unsigned long target_ino;
+	char target_pathname[SUSFS_MAX_LEN_PATHNAME];
+	unsigned long spoofed_ino;
+	unsigned long spoofed_dev;
+	unsigned int spoofed_nlink;
+	long long spoofed_size;
+	long spoofed_atime_tv_sec;
+	unsigned long spoofed_atime_tv_nsec;
+	long spoofed_mtime_tv_sec;
+	unsigned long spoofed_mtime_tv_nsec;
+	long spoofed_ctime_tv_sec;
+	unsigned long spoofed_ctime_tv_nsec;
+	long long spoofed_blocks;
+	long spoofed_blksize;
+	int flags;
+	int err;
+};
+
+int ksu_handle_susfs_cmd(unsigned int cmd, void __user **arg)
+{
+	switch (cmd) {
+	case 0x55550: /* CMD_SUSFS_ADD_SUS_PATH */
+	case 0x55553: /* CMD_SUSFS_ADD_SUS_PATH_LOOP */ {
+		struct {
+			char target_pathname[SUSFS_MAX_LEN_PATHNAME];
+			int err;
+		} info = {0};
+		struct path p;
+		mm_segment_t old_fs;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+
+		if (!kern_path(info.target_pathname, LOOKUP_FOLLOW, &p)) {
+			struct inode *inode = d_inode(p.dentry);
+			if (inode) {
+				spin_lock(&inode->i_lock);
+				inode->i_state |= (1 << 24); /* INODE_STATE_SUS_PATH */
+				spin_unlock(&inode->i_lock);
+			}
+			path_put(&p);
+		}
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		{
+			struct st_susfs_sus_path k_info = {0};
+			strncpy(k_info.target_pathname, info.target_pathname, sizeof(k_info.target_pathname) - 1);
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			susfs_add_sus_path((struct st_susfs_sus_path __user *)&k_info);
+			set_fs(old_fs);
+		}
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x60020: /* CMD_SUSFS_ADD_SUS_MAP */ {
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		extern void susfs_add_sus_map(void __user **user_info);
+		susfs_add_sus_map(arg);
+#else
+		struct { char target_pathname[SUSFS_MAX_LEN_PATHNAME]; int err; } info = {0};
+		if (!copy_from_user(&info, (void __user*)*arg, sizeof(info))) {
+			info.err = 0;
+			(void)copy_to_user((void __user*)*arg, &info, sizeof(info));
+		}
+#endif
+		return 0;
+	}
+	case 0x55560: /* CMD_SUSFS_ADD_SUS_MOUNT */ {
+		struct {
+			char target_pathname[SUSFS_MAX_LEN_PATHNAME];
+			unsigned long target_dev;
+			int err;
+		} info = {0};
+		mm_segment_t old_fs;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+		{
+			struct st_susfs_sus_mount k_info = {0};
+			strncpy(k_info.target_pathname, info.target_pathname, sizeof(k_info.target_pathname) - 1);
+			k_info.target_dev = info.target_dev;
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			susfs_add_sus_mount((struct st_susfs_sus_mount __user *)&k_info);
+			set_fs(old_fs);
+		}
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x55561: /* CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS */
+	case 0x60010: /* CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING */ {
+		struct {
+			unsigned int enabled;
+			int err;
+		} info = {0};
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x55570: /* CMD_SUSFS_ADD_SUS_KSTAT */
+	case 0x55571: /* CMD_SUSFS_UPDATE_SUS_KSTAT */
+	case 0x55572: /* CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY */ {
+		struct st_susfs_sus_kstat_v2 info = {0};
+		mm_segment_t old_fs;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+		{
+			struct st_susfs_sus_kstat k_info = {0};
+			k_info.is_statically = info.is_statically ? 1 : 0;
+			k_info.target_ino = info.target_ino;
+			strncpy(k_info.target_pathname, info.target_pathname, sizeof(k_info.target_pathname) - 1);
+			k_info.spoofed_ino = info.spoofed_ino;
+			k_info.spoofed_dev = info.spoofed_dev;
+			k_info.spoofed_nlink = info.spoofed_nlink;
+			k_info.spoofed_size = info.spoofed_size;
+			k_info.spoofed_atime_tv_sec = info.spoofed_atime_tv_sec;
+			k_info.spoofed_atime_tv_nsec = (long)info.spoofed_atime_tv_nsec;
+			k_info.spoofed_mtime_tv_sec = info.spoofed_mtime_tv_sec;
+			k_info.spoofed_mtime_tv_nsec = (long)info.spoofed_mtime_tv_nsec;
+			k_info.spoofed_ctime_tv_sec = info.spoofed_ctime_tv_sec;
+			k_info.spoofed_ctime_tv_nsec = (long)info.spoofed_ctime_tv_nsec;
+			k_info.spoofed_blksize = (unsigned long)info.spoofed_blksize;
+			k_info.spoofed_blocks = (unsigned long long)info.spoofed_blocks;
+
+			if (k_info.target_ino == 0 && strlen(k_info.target_pathname) > 0) {
+				struct path p;
+				if (!kern_path(k_info.target_pathname, LOOKUP_FOLLOW, &p)) {
+					if (d_inode(p.dentry))
+						k_info.target_ino = d_inode(p.dentry)->i_ino;
+					path_put(&p);
+				}
+			}
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			if (cmd == 0x55571) {
+				susfs_update_sus_kstat((struct st_susfs_sus_kstat __user *)&k_info);
+			} else {
+				susfs_add_sus_kstat((struct st_susfs_sus_kstat __user *)&k_info);
+			}
+			set_fs(old_fs);
+		}
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x55580: /* CMD_SUSFS_ADD_TRY_UMOUNT */ {
+		struct {
+			char target_pathname[SUSFS_MAX_LEN_PATHNAME];
+			int mnt_mode;
+			int err;
+		} info = {0};
+		mm_segment_t old_fs;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+		{
+			struct st_susfs_try_umount k_info = {0};
+			strncpy(k_info.target_pathname, info.target_pathname, sizeof(k_info.target_pathname) - 1);
+			k_info.mnt_mode = info.mnt_mode;
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			susfs_add_try_umount((struct st_susfs_try_umount __user *)&k_info);
+			set_fs(old_fs);
+		}
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x555b0: /* CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG */ {
+		int err = 0;
+#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+		susfs_set_cmdline_or_bootconfig((char __user*)*arg);
+#endif
+		/* ReSukiSU ksud uses 8192 buffer, simonpunk uses 4096; write 0 to both offsets */
+		(void)copy_to_user((void __user*)(*arg + 4096), &err, sizeof(err));
+		(void)copy_to_user((void __user*)(*arg + 8192), &err, sizeof(err));
+		return 0;
+	}
+	case 0x555c0: /* CMD_SUSFS_ADD_OPEN_REDIRECT */ {
+		struct {
+			char target_pathname[SUSFS_MAX_LEN_PATHNAME];
+			char redirected_pathname[SUSFS_MAX_LEN_PATHNAME];
+			unsigned int uid_scheme;
+			int err;
+		} info = {0};
+		mm_segment_t old_fs;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+		{
+			struct st_susfs_open_redirect k_info = {0};
+			struct path p;
+			strncpy(k_info.target_pathname, info.target_pathname, sizeof(k_info.target_pathname) - 1);
+			strncpy(k_info.redirected_pathname, info.redirected_pathname, sizeof(k_info.redirected_pathname) - 1);
+			if (!kern_path(info.target_pathname, LOOKUP_FOLLOW, &p)) {
+				struct inode *inode = d_inode(p.dentry);
+				if (inode) {
+					k_info.target_ino = inode->i_ino;
+					spin_lock(&inode->i_lock);
+					inode->i_state |= (1 << 27); /* INODE_STATE_OPEN_REDIRECT */
+					spin_unlock(&inode->i_lock);
+				}
+				path_put(&p);
+			}
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			susfs_add_open_redirect((struct st_susfs_open_redirect __user *)&k_info);
+			set_fs(old_fs);
+		}
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x55590: /* CMD_SUSFS_SET_UNAME */ {
+		struct {
+			char release[65];
+			char version[65];
+			int err;
+		} info = {0};
+		mm_segment_t old_fs;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+		{
+			struct st_susfs_uname k_info = {0};
+			strncpy(k_info.release, info.release, sizeof(k_info.release) - 1);
+			strncpy(k_info.version, info.version, sizeof(k_info.version) - 1);
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			susfs_set_uname((struct st_susfs_uname __user *)&k_info);
+			set_fs(old_fs);
+		}
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x555a0: /* CMD_SUSFS_ENABLE_LOG */ {
+		struct {
+			unsigned int enabled;
+			int err;
+		} info = {0};
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
+		susfs_set_log(info.enabled != 0);
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x555d0: /* CMD_SUSFS_RUN_UMOUNT_FOR_CURRENT_MNT_NS */ {
+		struct {
+			int err;
+		} info = {0};
+#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+		susfs_try_umount(current_uid().val);
+#endif
+		info.err = 0;
+		(void)copy_to_user((void __user*)*arg, &info, sizeof(info));
+		return 0;
+	}
+	case 0x555e4: /* CMD_SUSFS_SHOW_SUS_SU_WORKING_MODE */ {
+		struct { int mode; int err; } info = { .mode = 0, .err = 0 };
+		(void)copy_to_user((void __user*)*arg, &info, sizeof(info));
+		return 0;
+	}
+	case 0x555f0: /* CMD_SUSFS_IS_SUS_SU_READY */ {
+		struct { bool ready; int err; } info = { .ready = false, .err = 0 };
+		(void)copy_to_user((void __user*)*arg, &info, sizeof(info));
+		return 0;
+	}
+	case 0x60000: /* CMD_SUSFS_SUS_SU */ {
+		struct { int mode; int err; } info = { .mode = 0, .err = 0 };
+		(void)copy_to_user((void __user*)*arg, &info, sizeof(info));
+		return 0;
+	}
+	case 0x55551:
+	case 0x555e1: { /* CMD_SUSFS_SHOW_VERSION */
+		struct ksu_susfs_version_cmd v = {0};
+		scnprintf(v.version, sizeof(v.version), "%s", SUSFS_VERSION);
+		v.err = 0;
+		if (copy_to_user((void __user *)*arg, &v, sizeof(v)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x555e3: { /* CMD_SUSFS_SHOW_VARIANT */
+		struct ksu_susfs_variant_cmd var = {0};
+		scnprintf(var.variant, sizeof(var.variant), "%s", SUSFS_VARIANT);
+		var.err = 0;
+		if (copy_to_user((void __user *)*arg, &var, sizeof(var)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x55552:
+	case 0x555e2: { /* CMD_SUSFS_SHOW_ENABLED_FEATURES */
+		struct ksu_susfs_features_cmd *feat;
+		char *p;
+		size_t remain;
+		int n;
+
+		feat = kzalloc(sizeof(*feat), GFP_KERNEL);
+		if (!feat)
+			return -ENOMEM;
+		p = feat->features;
+		remain = sizeof(feat->features);
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_PATH\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_MOUNT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_KSTAT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_OVERLAYFS
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_OVERLAYFS\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_TRY_UMOUNT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SPOOF_UNAME\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_ENABLE_LOG\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_OPEN_REDIRECT\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_MAP\n");
+		p += n; remain -= n;
+#endif
+#ifdef CONFIG_KSU_SUSFS_SUS_SU
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_SU\n");
+		p += n; remain -= n;
+#endif
+		feat->err = 0;
+		if (copy_to_user((void __user *)*arg, feat, sizeof(*feat))) {
+			kfree(feat);
+			return -EFAULT;
+		}
+		kfree(feat);
+		return 0;
+	}
+	default:
+		return 0;
+	}
+}
+#endif'''
+
+    dc = dc[:pos_start] + susfs_cmd_handler + '\n' + dc[pos_end:]
+    with open(path, 'w') as f:
+        f.write(dc)
+    print('[+] ReSukiSU dispatch.c successfully wired to SuSFS 4.19!')
+PYEOF
+    python3 patch_dispatch.py && rm -f patch_dispatch.py
+
     echo "===> Menerapkan 8 Manual Kernel Hooks untuk ReSukiSU..."
     python3 -c "
 # 1. kernel/sys.c

@@ -76,45 +76,6 @@ extra_inc = '''#include <linux/cred.h>
 extern int ksu_handle_execve_ksud(const char __user *filename_user,
                                   const char __user *const __user *__argv);
 '''
-if 'fake_ino' not in c:
-    old_stat = '''static long ksu_sth_newfstatat(const struct pt_regs *regs)
-{
-	int *dfd = (int *)&PT_REGS_PARM1(regs);
-	const char __user **filename_user =
-		(const char __user **)&PT_REGS_PARM2(regs);
-	int *flags = (int *)&PT_REGS_SYSCALL_PARM4(regs);
-
-	ksu_handle_stat(dfd, filename_user, flags);
-
-	return ksu_sth_call_orig(__NR_newfstatat, regs);
-}'''
-    new_stat = '''static long ksu_sth_newfstatat(const struct pt_regs *regs)
-{
-	int *dfd = (int *)&PT_REGS_PARM1(regs);
-	const char __user **filename_user =
-		(const char __user **)&PT_REGS_PARM2(regs);
-	int *flags = (int *)&PT_REGS_SYSCALL_PARM4(regs);
-	long ret;
-	char pbuf[32];
-
-	ksu_handle_stat(dfd, filename_user, flags);
-
-	ret = ksu_sth_call_orig(__NR_newfstatat, regs);
-
-	if (ret == 0 && filename_user && *filename_user) {
-		if (strncpy_from_user_nofault(pbuf, *filename_user, sizeof(pbuf)) > 0) {
-			if (!strcmp(pbuf, "/data/local/tmp") || !strcmp(pbuf, "/data/local/tmp/")) {
-				unsigned long fake_ino = 42;
-				struct stat __user *st = (struct stat __user *)PT_REGS_PARM3(regs);
-				(void)copy_to_user(&st->st_ino, &fake_ino, sizeof(fake_ino));
-			}
-		}
-	}
-
-	return ret;
-}'''
-    if old_stat in c:
-        c = c.replace(old_stat, new_stat, 1)
 
 if 'manager_identity.h' not in c:
     c = c.replace('#include "runtime/ksud.h"', '#include "runtime/ksud.h"\n' + extra_inc, 1)
@@ -353,13 +314,9 @@ hook = '''
 #ifdef CONFIG_KSU
 	{
 		extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
-		if (magic1 == 0xDEADBEEF) {
-			if (current_uid().val == 0) {
-				ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
-				return 0;
-			}
-			return -EPERM;
-		}
+		ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+		if (magic1 == 0xDEADBEEF)
+			return 0;
 	}
 #endif
 '''

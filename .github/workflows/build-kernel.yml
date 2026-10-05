@@ -166,6 +166,11 @@ jobs:
           echo "===> Mengonfigurasi defconfig: $DEFCONFIG..."
           make -j$(nproc --all) ARCH=arm64 O=out "$DEFCONFIG"
 
+          # Resolve semua NEW symbols non-interaktif sebelum build,
+          # agar syncconfig tidak Restart config dan mereset opsi kita
+          echo "===> Menyelesaikan NEW symbols non-interaktif (yes olddefconfig)..."
+          yes "" | make -j$(nproc --all) ARCH=arm64 O=out olddefconfig
+
           echo "===> Verifikasi hasil konfigurasi kritis:"
           grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_ANDROID_PARANOID_NETWORK|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_SUSFS|CONFIG_IOSCHED_ANXIETY" out/.config
 

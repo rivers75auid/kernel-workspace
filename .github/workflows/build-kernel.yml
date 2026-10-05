@@ -163,29 +163,11 @@ jobs:
           export KBUILD_BUILD_HOST="Olympus-Buildbox"
 
           mkdir -p out
-          echo "===> Mengonfigurasi defconfig dasar: $DEFCONFIG..."
+          echo "===> Mengonfigurasi defconfig: $DEFCONFIG..."
           make -j$(nproc --all) ARCH=arm64 O=out "$DEFCONFIG"
 
-          echo "===> Memaksa opsi kritis Android 16 & Potato Suite ke out/.config..."
-          cat "$GITHUB_WORKSPACE/configs/potato.config" >> out/.config
-          [ -f "$GITHUB_WORKSPACE/configs/ksu_susfs.config" ] && cat "$GITHUB_WORKSPACE/configs/ksu_susfs.config" >> out/.config
-
-          ./scripts/config --file out/.config --enable RD_LZ4
-          ./scripts/config --file out/.config --enable USERFAULTFD
-          ./scripts/config --file out/.config --disable ANDROID_PARANOID_NETWORK
-          ./scripts/config --file out/.config --enable IOSCHED_ANXIETY
-          ./scripts/config --file out/.config --set-str DEFAULT_IOSCHED anxiety
-          ./scripts/config --file out/.config --enable NET_ACT_BPF
-          ./scripts/config --file out/.config --enable NET_CLS_MATCHALL
-          ./scripts/config --file out/.config --enable NET_SCH_TBF
-          ./scripts/config --file out/.config --enable NET_ACT_POLICE
-          ./scripts/config --file out/.config --enable NET_ACT_CONNMARK
-
-          echo "===> Menjalankan olddefconfig non-interaktif..."
-          make -j$(nproc --all) ARCH=arm64 O=out olddefconfig
-
           echo "===> Verifikasi hasil konfigurasi kritis:"
-          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_ANDROID_PARANOID_NETWORK|CONFIG_KSU|CONFIG_IOSCHED_ANXIETY" out/.config
+          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_ANDROID_PARANOID_NETWORK|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_SUSFS|CONFIG_IOSCHED_ANXIETY" out/.config
 
           echo "===> Mengompilasi Kernel..."
           make -j$(nproc --all) ARCH=arm64 O=out \

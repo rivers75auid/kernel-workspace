@@ -1,5 +1,7 @@
 # Output zip & temporary files
 output/
+build_output/
+__pycache__/
 *.zip
 *.tar.gz
 *.log

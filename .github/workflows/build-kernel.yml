@@ -137,8 +137,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/scripts/patch-memavailable.py"
 
           echo "===> Enabling Novatek touchscreen ESD recovery & edge ghost-touch fix..."
-          sed -i 's/#define NVT_TOUCH_ESD_PROTECT 0/#define NVT_TOUCH_ESD_PROTECT 1/g' drivers/input/touchscreen/nt36xxx/nt36xxx.h 2>/dev/null || true
-          sed -i 's/#define NVT_TOUCH_ESD_PROTECT 0/#define NVT_TOUCH_ESD_PROTECT 1/g' drivers/input/touchscreen/nt36525b_spi/nt36xxx.h 2>/dev/null || true
+          python3 "$GITHUB_WORKSPACE/scripts/patch-touch.py"
 
           if [ "$OPT_POTATO" = "true" ]; then
             echo "===> Enabling Potato Tuning Suite (WALT/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
@@ -164,8 +163,29 @@ jobs:
           export KBUILD_BUILD_HOST="Olympus-Buildbox"
 
           mkdir -p out
-          echo "===> Mengonfigurasi defconfig: $DEFCONFIG..."
+          echo "===> Mengonfigurasi defconfig dasar: $DEFCONFIG..."
           make -j$(nproc --all) ARCH=arm64 O=out "$DEFCONFIG"
+
+          echo "===> Memaksa opsi kritis Android 16 & Potato Suite ke out/.config..."
+          cat "$GITHUB_WORKSPACE/configs/potato.config" >> out/.config
+          [ -f "$GITHUB_WORKSPACE/configs/ksu_susfs.config" ] && cat "$GITHUB_WORKSPACE/configs/ksu_susfs.config" >> out/.config
+
+          ./scripts/config --file out/.config --enable RD_LZ4
+          ./scripts/config --file out/.config --enable USERFAULTFD
+          ./scripts/config --file out/.config --disable ANDROID_PARANOID_NETWORK
+          ./scripts/config --file out/.config --enable IOSCHED_ANXIETY
+          ./scripts/config --file out/.config --set-str DEFAULT_IOSCHED anxiety
+          ./scripts/config --file out/.config --enable NET_ACT_BPF
+          ./scripts/config --file out/.config --enable NET_CLS_MATCHALL
+          ./scripts/config --file out/.config --enable NET_SCH_TBF
+          ./scripts/config --file out/.config --enable NET_ACT_POLICE
+          ./scripts/config --file out/.config --enable NET_ACT_CONNMARK
+
+          echo "===> Menjalankan olddefconfig non-interaktif..."
+          make -j$(nproc --all) ARCH=arm64 O=out olddefconfig
+
+          echo "===> Verifikasi hasil konfigurasi kritis:"
+          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_ANDROID_PARANOID_NETWORK|CONFIG_KSU|CONFIG_IOSCHED_ANXIETY" out/.config
 
           echo "===> Mengompilasi Kernel..."
           make -j$(nproc --all) ARCH=arm64 O=out \

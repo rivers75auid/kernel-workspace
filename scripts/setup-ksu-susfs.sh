@@ -75,7 +75,7 @@ pos_start = dc.find('#ifdef CONFIG_KSU_SUSFS\nint ksu_handle_susfs_cmd')
 pos_end = dc.find('#ifdef CONFIG_KSU_TOOLKIT_SUPPORT', pos_start)
 
 if pos_start != -1 and pos_end != -1:
-    susfs_cmd_handler = '''#ifdef CONFIG_KSU_SUSFS
+    susfs_cmd_handler = r'''#ifdef CONFIG_KSU_SUSFS
 #ifndef SUSFS_MAX_VERSION_BUFSIZE
 #define SUSFS_MAX_VERSION_BUFSIZE 16
 #endif

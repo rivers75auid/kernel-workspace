@@ -69,6 +69,8 @@ path = 'KernelSU/kernel/supercall/dispatch.c'
 with open(path, 'r') as f:
     dc = f.read()
 
+dc = dc.replace('#include <linux/susfs_def.h>', '#include <linux/susfs.h>\n#include <linux/susfs_def.h>')
+
 pos_start = dc.find('#ifdef CONFIG_KSU_SUSFS\nint ksu_handle_susfs_cmd')
 pos_end = dc.find('#ifdef CONFIG_KSU_TOOLKIT_SUPPORT', pos_start)
 

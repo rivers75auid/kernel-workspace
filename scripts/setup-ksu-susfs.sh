@@ -693,11 +693,33 @@ print('[+] security/selinux/selinuxfs.c un-static OK!')
         echo "===> Menerapkan patch SUSFS ke kernel tree..."
         patch -p1 --forward < "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch" || echo "[WARN] Sebagian patch kernel mungkin sudah terpasang"
 
+        echo "===> Menambahkan susfs_extra_works dan sdcard monitor ke fs/susfs.c..."
+        python3 -c "
+with open('fs/susfs.c', 'r') as f:
+    c = f.read()
+
+target = '/* susfs_init */\nvoid susfs_init(void) {\n\tspin_lock_init(&susfs_spin_lock);'
+repl = '''struct work_struct susfs_extra_works;
+static void susfs_run_extra_works(struct work_struct *work) {}
+void susfs_start_sdcard_monitor_fn(void) {}
+
+/* susfs_init */
+void susfs_init(void) {
+	INIT_WORK(&susfs_extra_works, susfs_run_extra_works);
+	spin_lock_init(&susfs_spin_lock);'''
+
+if target in c:
+    c = c.replace(target, repl, 1)
+    with open('fs/susfs.c', 'w') as f:
+        f.write(c)
+    print('[+] fs/susfs.c extra works added!')
+"
+
         echo "===> Memastikan header susfs_def.h terpasang di fs.h dan task_mmu.c..."
         sed -i '/#define _LINUX_FS_H/a #ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif' include/linux/fs.h || true
         grep -q "susfs_def.h" fs/proc/task_mmu.c || sed -i '1i #ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c || true
 
-        echo "===> Menambahkan dukungan SUS_MAP dan SUSFS_MAGIC ke header SuSFS..."
+        echo "===> Menambahkan dukungan SUS_MAP, SUSFS_MAGIC, dan GKI SuSFS helpers ke header SuSFS..."
         cat << 'EOF' >> include/linux/susfs_def.h
 
 #ifndef SUSFS_MAGIC
@@ -715,6 +737,53 @@ print('[+] security/selinux/selinuxfs.c un-static OK!')
 	unlikely(test_bit(AS_FLAGS_SUS_MAP, &inode->i_mapping->flags)) && \
 	(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC))
 #endif
+
+#include <linux/thread_info.h>
+#ifndef TIF_PROC_UMOUNTED
+#define TIF_PROC_UMOUNTED 33
+#endif
+#ifndef TIF_PROC_NO_SU
+#define TIF_PROC_NO_SU 34
+#endif
+#ifndef TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT
+#define TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT 35
+#endif
+
+static inline bool susfs_is_current_proc_umounted(void) {
+	return (likely(test_thread_flag(TIF_PROC_UMOUNTED)));
+}
+
+static inline void susfs_set_current_proc_umounted(void) {
+	set_thread_flag(TIF_PROC_UMOUNTED);
+}
+
+static inline void susfs_clear_current_proc_umounted(void) {
+	clear_thread_flag(TIF_PROC_UMOUNTED);
+}
+
+static inline bool susfs_is_current_proc_umounted_for_zygote_next(void) {
+	return (likely(test_thread_flag(TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT)));
+}
+
+static inline void susfs_set_current_proc_umounted_for_zygote_next(void) {
+	set_thread_flag(TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT);
+}
+
+static inline void susfs_clear_current_proc_umounted_for_zygote_next(void) {
+	clear_thread_flag(TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT);
+}
+
+static inline bool susfs_is_current_proc_no_su(void) {
+	return (likely(test_thread_flag(TIF_PROC_NO_SU)));
+}
+
+static inline void susfs_set_current_proc_no_su(void) {
+	set_thread_flag(TIF_PROC_NO_SU);
+}
+
+static inline void susfs_clear_current_proc_no_su(void) {
+	clear_thread_flag(TIF_PROC_NO_SU);
+}
 EOF
 
         cat << 'EOF' >> include/linux/susfs.h

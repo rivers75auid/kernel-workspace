@@ -722,6 +722,9 @@ if target in c:
         echo "===> Menambahkan dukungan SUS_MAP, SUSFS_MAGIC, dan GKI SuSFS helpers ke header SuSFS..."
         cat << 'EOF' >> include/linux/susfs_def.h
 
+#ifndef _KSU_SUSFS_DEF_EXT_H
+#define _KSU_SUSFS_DEF_EXT_H
+
 #ifndef SUSFS_MAGIC
 #define SUSFS_MAGIC 0xFAFAFAFA
 #endif
@@ -784,10 +787,13 @@ static inline void susfs_set_current_proc_no_su(void) {
 static inline void susfs_clear_current_proc_no_su(void) {
 	clear_thread_flag(TIF_PROC_NO_SU);
 }
+#endif /* _KSU_SUSFS_DEF_EXT_H */
 EOF
 
         cat << 'EOF' >> include/linux/susfs.h
 
+#ifndef _KSU_SUSFS_EXT_H
+#define _KSU_SUSFS_EXT_H
 #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 struct st_susfs_sus_map {
     char target_pathname[256];
@@ -795,6 +801,7 @@ struct st_susfs_sus_map {
 };
 void susfs_add_sus_map(void __user **user_info);
 #endif
+#endif /* _KSU_SUSFS_EXT_H */
 EOF
 
         echo "===> Menerapkan hook SUS_MAP ke fs/proc/task_mmu.c..."

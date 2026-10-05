@@ -21,8 +21,8 @@ Dokumentasi arsitektur sistem kernel: membagi pilar teknologi utama (Parent) ke 
 
 | Pilar Utama (Parent) | Versi Komponen | Sumber Hulu (Upstream Source) | Deskripsi Singkat |
 |---|---|---|---|
-| **KernelSU-Next** | v3.4.0 (33294) | [KernelSU-Next/KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next) (`legacy`) | Framework root berbasis kernel dengan implementasi Syscall Table Hook untuk Linux non-GKI 4.19. |
-| **SuSFS Engine** | v2.3.0 | [simonpunk/susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) (`kernel-4.19`) | Subsistem kernel stealth untuk menyembunyikan modifikasi root, VFS mount, inode kstat, dan memory map. |
+| **ReSukiSU** | v4.2.0-rc3 | [ReSukiSU/ReSukiSU](https://github.com/ReSukiSU/ReSukiSU) | Framework root modern berbasis kernel dengan 8 Manual Inline Hooks murni untuk Linux non-GKI 4.19 (bebas modifikasi Syscall Table). |
+| **SuSFS Engine** | v2.3.0 | [simonpunk/susfs4ksu](https://gitlab.com/simonpunk/susfs4ksu) (`kernel-4.19` + GKI backport) | Subsistem kernel stealth untuk menyembunyikan modifikasi root, VFS mount, inode kstat, dan memory map. |
 | **Memory Optimization** | Linux 4.19 Backport | Android Common Kernel / Google AOSP | Manajemen memori agresif untuk device RAM 4GB: MGLRU, ZRAM ZSTD+DEDUP, KSM, Z3FOLD, Process Reclaim. |
 | **Storage & I/O Engine** | Anxiety v1.0 | Upstream Linux I/O Schedulers | Scheduler flash I/O Anxiety yang disetel khusus untuk storage UFS 2.2 (full-duplex queue) + fallback BFQ. |
 | **CPU Scheduling** | Qualcomm WALT | CAF (Code Aurora Forum) Qualcomm SM6225 | Window-Assisted Load Tracking + Schedtune engine yang disetel untuk 4x A73 (Gold) + 4x A53 (Silver). |
@@ -34,19 +34,27 @@ Dokumentasi arsitektur sistem kernel: membagi pilar teknologi utama (Parent) ke 
 
 ## 2. Rincian Sub-Fitur (Child Features Breakdown)
 
-### A. Pilar 1: KernelSU-Next (Root Framework)
-KernelSU-Next adalah fork resmi tingkat lanjut dari KernelSU yang dioptimalkan untuk Android 14/15/16 dan kernel legacy non-GKI.
+### A. Pilar 1: ReSukiSU (Root Framework)
+ReSukiSU adalah evolusi modern dari KernelSU yang dioptimalkan untuk Android 14/15/16 dan integrasi native SuSFS.
 
 * **Child Features**:
-  1. **Syscall Table Hook (`CONFIG_KSU_SYSCALL_TABLE_HOOK=y`)**:
-     - Memodifikasi entri pointer tabel syscall di memori kernel tanpa memasang kprobe breakpoint yang mudah dideteksi ptrace/anti-cheat.
-     - Syscall yang di-hook: `execveat`, `execve`, `faccessat`, `newfstatat`, `setresuid`, `prctl`, `read`.
-  2. **Reliable `execveat` ksud Hook (Custom Patch)**:
-     - Syscall `execveat` langsung memicu `ksu_handle_execve_ksud` tanpa terhadang register `envp` ARM64.
-     - Menjamin `init second_stage` selalu terdeteksi, kredensial root `ksu_cred` selalu terinisialisasi, dan `cache_sid()` selalu aktif.
-  3. **App Profile & Dynamic NRP Engine**:
+  1. **Manual Inline Hooking (Murni Tanpa Syscall Table Hooking)**:
+     - Berbeda dengan STH yang memodifikasi tabel syscall di memori (mudah dideteksi scanner memori perbankan), ReSukiSU menggunakan manual inline hook langsung di source code kernel:
+       * `kernel/sys.c`: `ksu_handle_setresuid`
+       * `kernel/reboot.c`: `ksu_handle_sys_reboot`
+       * `fs/exec.c`: `ksu_handle_execveat` & `ksu_handle_post_execveat`
+       * `fs/open.c`: `ksu_handle_faccessat`
+       * `fs/read_write.c`: `ksu_handle_sys_read`
+       * `fs/stat.c`: `ksu_handle_stat` + spoofing inode 2 untuk `/data/local/tmp`
+       * `drivers/input/input.c`: `ksu_handle_input_handle_event`
+       * `security/selinux/selinuxfs.c`: Un-static `sel_handle_status_ops` & `transaction_ops`
+  2. **Sinkronisasi 1:1 ReSukiSU Manager (Full Featured Hijau)**:
+     - Versi kernel dan userspace manager sinkron pada UAPI v4 (`v4.2.0-rc3`), meniadakan warning "Manager update required".
+  3. **Native SuSFS Supercall Integration**:
+     - Dispatcher SuSFS v2.3.0 terintegrasi penuh di dalam driver ReSukiSU (`supercall/dispatch.c`) dengan dukungan buffer dual-offset (4096 & 8192 bytes) untuk `set_cmdline_or_bootconfig` dan struct 376-byte untuk kstat v2.
+  4. **App Profile & Dynamic NRP Engine**:
      - Pengaturan izin root dan isolasi modul per-aplikasi (Allowlist & Non-Root Profile).
-  4. **Kernel Unmount Engine (`kernel_umount.c`)**:
+  5. **Kernel Unmount Engine (`kernel_umount.c`)**:
      - Mencopot mountpoint modul secara asinkron via `task_work_add` saat aplikasi non-root diluncurkan.
      - Pengecekan lineage parent creds (`real_parent`) untuk mendukung transisi konteks Zygote modern.
 

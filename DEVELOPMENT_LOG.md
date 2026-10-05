@@ -228,3 +228,55 @@
   - Mengunggah file zip flashable kernel (`Kairos-SUSFS-Potato-fog-*.zip`) secara otomatis ke chat ID Telegram saat build sukses.
 * **Commit**: `e557c93`, `d298aed`, `55c8cda`.
 
+---
+
+### Fase 6: Migrasi Total ke ReSukiSU v4.2.0-rc3, 8 Manual Hooks, dan Backport SuSFS GKI (2026-10-05)
+
+#### 1. Migrasi Penuh ke ReSukiSU & Pencopotan KernelSU-Next
+* **Latar Belakang**:
+  - Terjadi konflik versi UAPI mismatch pada manager ("Manager update required" dan "version too low") akibat KernelSU-Next legacy menggunakan versi UAPI dan override versi 11998 yang tidak sinkron.
+* **Solusi**:
+  - Menghapus integrasi KernelSU-Next legacy sepenuhnya.
+  - Mengintegrasikan upstream resmi [ReSukiSU/ReSukiSU](https://github.com/ReSukiSU/ReSukiSU) (v4.2.0-rc3).
+  - Mengimplementasikan 8 Manual Inline Kernel Hooks murni (tanpa Syscall Table Hooking di memori):
+    * `kernel/sys.c`: `ksu_handle_setresuid`
+    * `kernel/reboot.c`: `ksu_handle_sys_reboot`
+    * `fs/exec.c`: `ksu_handle_execveat` & `ksu_handle_post_execveat`
+    * `fs/open.c`: `ksu_handle_faccessat`
+    * `fs/read_write.c`: `ksu_handle_sys_read`
+    * `fs/stat.c`: `ksu_handle_stat` + penanganan `fake_ino = 2` untuk `/data/local/tmp`
+    * `drivers/input/input.c`: `ksu_handle_input_handle_event`
+    * `security/selinux/selinuxfs.c`: Un-static `sel_handle_status_ops` & `transaction_ops`
+  - ReSukiSU Manager langsung terbaca **Full Featured** hijau sinkron 1:1.
+
+#### 2. Backport GKI SuSFS v2.3.0 ke Linux 4.19
+* **Latar Belakang**:
+  - ReSukiSU memerlukan helper dan workqueue SuSFS cabang modern GKI 5.10+ yang tidak ada di kernel 4.19 simonpunk, menyebabkan linker error `undefined reference` pada `vmlinux`.
+* **Solusi**:
+  - Mem-backport thread flags `TIF_PROC_UMOUNTED`, `TIF_PROC_NO_SU`, `TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT` dan helper inline terkait ke `include/linux/susfs_def.h`.
+  - Menginisialisasi `susfs_extra_works` via workqueue resmi di `susfs_init()` dan fungsi stub `susfs_start_sdcard_monitor_fn()` di `fs/susfs.c`.
+  - Membungkus seluruh blok ekstensi dengan include guard `#ifndef _KSU_SUSFS_DEF_EXT_H` untuk mencegah error redefinisi kompiler.
+
+#### 3. Resolusi SuSFS `0x555b0` & ReSuSFS `file_size too long`
+* **Latar Belakang**:
+  - ReSuSFS gagal mengeksekusi `set_cmdline_or_bootconfig` (error `0x555b0 unsupported` dan `file_size too long`).
+* **Root Cause & Solusi**:
+  - File `cmdline_or_bootconfig.txt` membengkak hingga 11 KB karena append komentar berulang; dibersihkan menjadi 1 baris ringkas (~1.1 KB).
+  - ReSukiSU `ksud` mengalokasikan struct buffer 8192 byte (`err` di offset 8192), sedangkan tool lama memakai 4096 byte; kernel diperbarui untuk menulis balik `err = 0` di kedua offset (+4096 dan +8192).
+
+#### 4. Paket Tooling Mandiri di `resusfs/`
+* Menyiapkan kumpulan script siap pakai:
+  - `ReSuSFS_apply-cmdline-bootconfig.sh` & `cmdline_or_bootconfig.txt`: Penyetelan cmdline aman.
+  - `fix_android_data_selinux.sh`: Pemulihan kepemilikan dan restorecon SELinux `media_rw_data_file` untuk `/data/media/0/Android/data`.
+  - `fix_boot_hash.sh`: Deteksi otomatis SHA-256 vbmeta fisik dan spoofing verified boot state green/locked untuk Native Detector.
+  - `fix_shell_tmp_inode.sh`: Mounting tmpfs untuk userspace reset inode.
+  - `sus_maps.txt`: Daftar library injeksi Zygisk aktual tanpa dependensi modul palsu.
+
+#### 5. Instalasi Ekosistem Skill Developer
+* Mengintegrasikan skill penunjang pengkodean ke `.claude/skills/`:
+  - `ponytail` (+ audit, debt, gain, review)
+  - `unlazy`
+  - `anti-slop` (+ code, copywriting, human, layoutmobile, ui)
+  - `superpowers` (debugging sistematis, TDD, verifikasi sebelum selesai, dll.)
+
+

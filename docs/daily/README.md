@@ -21,3 +21,4 @@ Dokumentasi lengkap riwayat pengembangan, investigasi bug, katalog fitur, dan lo
 | **2026-10-02** | [2026-10-02.md](2026-10-02.md) | Investigasi deteksi root bank app, perbaikan Zygote lineage timing (`is_child_of_zygote`), resolusi konflik modul BRENE (9-fitur), dan backport `sus_map`. |
 | **2026-10-03** | [2026-10-03.md](2026-10-03.md) | Pemecahan akar masalah `execveat` register `envp` di `syscall_table_hook.c`, upgrade compiler ke **ZyC Clang 16 (LLVM Polly)** untuk SDM680, dan verifikasi bank app sukses. |
 | **2026-10-04** | [2026-10-04.md](2026-10-04.md) | Penyelesaian tuntas SuSFS `0x55550` via full reboot dispatcher, perbaikan Duck Detector (prctl errno 14 & inode 102450), fix Shamiko version check, dan integrasi bot Telegram. |
+| **2026-10-05** | [2026-10-05.md](2026-10-05.md) | Migrasi penuh ke official ReSukiSU v4.2.0-rc3, 8 manual kernel hooks, backport GKI SuSFS 5.10 ke 4.19, resolusi error `0x555b0`/`0x55572`, dan instalasi dev skills. |

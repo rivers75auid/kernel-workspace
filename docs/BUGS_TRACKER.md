@@ -177,6 +177,46 @@ Status Pelacakan Bug:
 
 ---
 
+### ~~18. [FIXED] UAPI Version Mismatch ("Manager update required" & "Version too low")~~
+- **Tanggal Ditemukan**: 2026-10-04
+- **Tanggal Selesai**: 2026-10-05
+- **Commit**: `1cc91c2`
+- **Gejala**: ReSukiSU Manager memunculkan kartu peringatan merah `Manager update required`, dan KernelSU-Next Manager menampilkan `The current KernelSU-Next manager version is too low for KernelSU-Next to work properly`.
+- **Penyebab**: KernelSU-Next legacy memiliki ketidaksesuaian antarmuka UAPI (v4 vs v5) dan pemalsuan versi 11998 memicu penolakan oleh ReSukiSU Manager v4.2.0-rc3.
+- **Solusi**: Migrasi penuh dari KernelSU-Next ke upstream resmi ReSukiSU v4.2.0-rc3 dengan 8 manual inline kernel hooks (sys.c, reboot.c, exec.c, open.c, read_write.c, stat.c, input.c, selinuxfs.c), dan hapus override versi palsu agar kernel dan manager sinkron 1:1 (Full Featured hijau).
+
+---
+
+### ~~19. [FIXED] SuSFS Error `0x555b0` & ReSuSFS `file_size too long`~~
+- **Tanggal Ditemukan**: 2026-10-04
+- **Tanggal Selesai**: 2026-10-05
+- **Commit**: `6d20037`, `01d29a2`
+- **Gejala**: Perintah `susfs set_cmdline_or_bootconfig` gagal dengan respon error `0x555b0 unsupported`, dan script ReSuSFS gagal dengan pesan `file_size too long`.
+- **Penyebab**: File `cmdline_or_bootconfig.txt` membengkak hingga 11 KB akibat penumpukan baris komentar `cat >>`, melampaui batas kernel 4096 byte. Selain itu, ReSukiSU `ksud` mengalokasikan buffer struct 8192 byte (`err` di offset 8192), sedangkan kernel lama hanya menulis `err = 0` di offset 4096.
+- **Solusi**: Bersihkan file konfigurasi menjadi 1 baris ringkas (~1 KB) dan ubah script ke mode overwrite. Di kernel, tulis balik `err = 0` di kedua offset (+4096 dan +8192) sehingga kompatibel dengan semua versi userspace.
+
+---
+
+### ~~20. [FIXED] Linker Failure vmlinux: Undefined Reference to GKI SuSFS Symbols~~
+- **Tanggal Ditemukan**: 2026-10-05
+- **Tanggal Selesai**: 2026-10-05
+- **Commit**: `dd97801`
+- **Gejala**: Build kernel gagal pada tahap `MODPOST vmlinux.o` dengan pesan `undefined reference to susfs_is_current_proc_no_su`, `susfs_extra_works`, `susfs_set_current_proc_umounted`, dan `susfs_start_sdcard_monitor_fn`.
+- **Penyebab**: ReSukiSU memanggil simbol-simbol SuSFS modern dari cabang GKI 5.10+, sedangkan patch kernel 4.19 simonpunk sudah tidak dipelihara dan tidak memiliki simbol tersebut.
+- **Solusi**: Backport definisi thread flags (`TIF_PROC_UMOUNTED`, `TIF_PROC_NO_SU`, dll.) ke `include/linux/susfs_def.h`, serta deklarasikan workqueue `susfs_extra_works` dan fungsi stub di `fs/susfs.c`.
+
+---
+
+### ~~21. [FIXED] Redefinition Compiler Error `susfs_is_current_proc_umounted`~~
+- **Tanggal Ditemukan**: 2026-10-05
+- **Tanggal Selesai**: 2026-10-05
+- **Commit**: `a9ee7e1`
+- **Gejala**: Kompilasi kernel gagal pada `fs/notify/fdinfo.c` dengan error `redefinition of 'susfs_is_current_proc_umounted'`.
+- **Penyebab**: Blok helper SuSFS di-append ke akhir `susfs_def.h` di luar include guard utama, menyebabkan deklarasi ganda saat file di-include berulang kali.
+- **Solusi**: Bungkus seluruh blok ekstensi helper SuSFS dengan include guard `#ifndef _KSU_SUSFS_DEF_EXT_H ... #endif`.
+
+---
+
 ## 2. Batasan Perangkat Keras (Hardware Limitations)
 
 ### 1. [LIMITATION] LTE Carrier Aggregation (4CA / B1+B3 Combo Lock)

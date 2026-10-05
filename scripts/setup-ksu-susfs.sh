@@ -10,335 +10,72 @@ DEFCONFIG="${4:-vendor/fog-perf_defconfig}"
 DEFCONFIG_PATH="arch/arm64/configs/$DEFCONFIG"
 
 if [ "$ENABLE_KSU" = "true" ]; then
-    echo "===> Mengintegrasikan KernelSU-Next (Legacy Branch untuk Non-GKI 4.19)..."
-    git clone --depth=1 -b legacy https://github.com/KernelSU-Next/KernelSU-Next.git "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next"
+    echo "===> Mengintegrasikan ReSukiSU (Native Support untuk Non-GKI 4.19 & SuSFS)..."
+    git clone https://github.com/ReSukiSU/ReSukiSU.git "$GITHUB_WORKSPACE/kernel_source/KernelSU"
 
     rm -rf drivers/kernelsu
-    ln -sfn "$GITHUB_WORKSPACE/kernel_source/KernelSU-Next/kernel" drivers/kernelsu
+    ln -sfn "$GITHUB_WORKSPACE/kernel_source/KernelSU/kernel" drivers/kernelsu
     test -f drivers/kernelsu/Kconfig || { echo "[-] ERROR: drivers/kernelsu/Kconfig does not exist!"; ls -la drivers/kernelsu; exit 1; }
     echo "[+] Verified drivers/kernelsu/Kconfig exists."
+
     grep -q "kernelsu" drivers/Makefile || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> drivers/Makefile
     grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
-    echo "===> Mengaktifkan hook setresuid, prctl, read, dan execve di syscall_table_hook.c..."
+    echo "===> Menyesuaikan ReSukiSU sucompat untuk Linux 4.19..."
     python3 -c "
-with open('KernelSU-Next/kernel/hook/syscall_table_hook.c', 'r') as f:
-    c = f.read()
+with open('KernelSU/kernel/feature/sucompat.h', 'r') as f:
+    h = f.read()
 
-extra_inc = '''#include <linux/cred.h>
-#include \"hook/setuid_hook.h\"
-#include \"manager/manager_identity.h\"
-#include \"manager/throne_tracker.h\"
-#include \"manager/manager_observer.h\"
-#include \"runtime/ksud_boot.h\"
-#include \"supercall/supercall.h\"
-extern int ksu_handle_execve_ksud(const char __user *filename_user,
-                                  const char __user *const __user *__argv);
-'''
-if 'manager_identity.h' not in c:
-    c = c.replace('#include \"runtime/ksud.h\"', '#include \"runtime/ksud.h\"\\n' + extra_inc, 1)
+target_h = '''#ifdef CONFIG_KSU_SUSFS
+int ksu_handle_faccessat(int *dfd, struct filename **filename, int *mode, int *__unused_flags);
+int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
+#else'''
 
-# Bridge execve and execveat to ksud_integration to trigger init second_stage and zygote post-fs-data
-execve_target = 'const char __user **filename_user =\\n\\t\\t(const char __user **)&PT_REGS_PARM1(regs);\\n\\tlong adb_ret = 0;\\n\\n\\tif (current->pid != 1 && is_init(current_cred())) {'
-execve_repl = 'const char __user **filename_user =\\n\\t\\t(const char __user **)&PT_REGS_PARM1(regs);\\n\\tlong adb_ret = 0;\\n\\n\\tksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM2(regs));\\n\\n\\tif (current->pid != 1 && is_init(current_cred())) {'
-if 'ksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM2(regs));' not in c:
-    c = c.replace(execve_target, execve_repl, 1)
-
-execveat_target = 'if ((int)PT_REGS_PARM1(regs) == AT_FDCWD &&\\n\\t    (int)PT_REGS_SYSCALL_PARM4(regs) == 0) {\\n\\t\\tif (current->pid != 1 && is_init(current_cred())) {'
-execveat_repl = 'if ((int)PT_REGS_PARM1(regs) == AT_FDCWD &&\\n\\t    (int)PT_REGS_SYSCALL_PARM4(regs) == 0) {\\n\\t\\tksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM3(regs));\\n\\t\\tif (current->pid != 1 && is_init(current_cred())) {'
-if 'ksu_handle_execve_ksud(*filename_user, (const char __user *const __user *)PT_REGS_PARM3(regs));' not in c:
-    c = c.replace(execveat_target, execveat_repl, 1)
-
-# Add setresuid, prctl, and read handlers
-handlers = '''
-#ifdef __NR_setresuid
-static long ksu_sth_setresuid(const struct pt_regs *regs)
-{
-	uid_t ruid = (uid_t)PT_REGS_PARM1(regs);
-	uid_t euid = (uid_t)PT_REGS_PARM2(regs);
-	uid_t suid = (uid_t)PT_REGS_PARM3(regs);
-
-	ksu_handle_setresuid(current_uid().val, ruid);
-
-	return ksu_sth_call_orig(__NR_setresuid, regs);
-}
-#endif
-
-#ifdef __NR_prctl
-static long ksu_sth_prctl(const struct pt_regs *regs)
-{
-	int option = (int)PT_REGS_PARM1(regs);
-	unsigned long arg2 = (unsigned long)PT_REGS_PARM2(regs);
-	unsigned long arg3 = (unsigned long)PT_REGS_PARM3(regs);
-	unsigned long arg4 = (unsigned long)PT_REGS_SYSCALL_PARM4(regs);
-	unsigned long arg5 = (unsigned long)PT_REGS_PARM5(regs);
-
-	if (unlikely(option == 0xDEADBEEF)) {
-		if (!ksu_is_manager_appid_valid()) {
-			track_throne(false);
-		}
-		if (is_manager()) {
-			ksu_install_fd();
-		}
-		if (arg2 == 2) {
-			int version = KSU_VERSION;
-			int flags = 0;
-			if (is_manager()) {
-				flags |= 0x2; // KSU_GET_INFO_FLAG_MANAGER
-			}
-			if (copy_to_user((void __user *)arg3, &version, sizeof(version)))
-				return -EFAULT;
-			if (copy_to_user((void __user *)arg4, &flags, sizeof(flags)))
-				return -EFAULT;
-			return 0;
-		}
-	}
-
-	return ksu_sth_call_orig(__NR_prctl, regs);
-}
-#endif
-
-#ifdef __NR_read
-extern bool ksu_init_rc_hook;
-extern void ksu_handle_sys_read(unsigned int fd);
-static long ksu_sth_read(const struct pt_regs *regs)
-{
-	if (unlikely(current->pid == 1 && ksu_init_rc_hook)) {
-		unsigned int fd = (unsigned int)PT_REGS_PARM1(regs);
-		ksu_handle_sys_read(fd);
-	}
-	return ksu_sth_call_orig(__NR_read, regs);
-}
-#endif
-'''
-if 'ksu_sth_setresuid' not in c:
-    c = c.replace('void __init ksu_syscall_table_hook_init(void)', handlers + '\\nvoid __init ksu_syscall_table_hook_init(void)', 1)
-
-hooks_anchor = '{ __NR_newfstatat, ksu_sth_newfstatat },\\n#endif'
-hooks_repl = '{ __NR_newfstatat, ksu_sth_newfstatat },\\n#endif\\n#ifdef __NR_setresuid\\n\\t\\t{ __NR_setresuid, ksu_sth_setresuid },\\n#endif\\n#ifdef __NR_prctl\\n\\t\\t{ __NR_prctl, ksu_sth_prctl },\\n#endif\\n#ifdef __NR_read\\n\\t\\t{ __NR_read, ksu_sth_read },\\n#endif'
-if '{ __NR_setresuid' not in c:
-    c = c.replace(hooks_anchor, hooks_repl, 1)
-
-with open('KernelSU-Next/kernel/hook/syscall_table_hook.c', 'w') as f:
-    f.write(c)
-print('[+] syscall_table_hook.c successfully patched for non-GKI!')
-"
-
-    echo "===> Menerapkan hook reboot.c untuk handshake KernelSU..."
-    python3 -c "
-with open('kernel/reboot.c', 'r') as f:
-    c = f.read()
-hook = '''
-#ifdef CONFIG_KSU
-	{
-		extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
-		ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
-		if (magic1 == 0xDEADBEEF)
-			return 0;
-	}
-#endif
-'''
-target = '\t/* We only trust the superuser with rebooting the system. */'
-if target in c and 'ksu_handle_sys_reboot' not in c:
-    c = c.replace(target, hook + '\n' + target, 1)
-    with open('kernel/reboot.c', 'w') as f:
-        f.write(c)
-    print('reboot.c hooked!')
-"
-
-    if [ "$ENABLE_SUS" = "true" ]; then
-        echo "===> Mengambil Patch SUSFS 4.19 (Upstream simonpunk)..."
-        git clone --depth=1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git "$GITHUB_WORKSPACE/susfs4ksu"
-
-        echo "===> Menyesuaikan versi SUSFS Header ke $SUS_VER..."
-        sed -i "s/#define SUSFS_VERSION .*/#define SUSFS_VERSION \"$SUS_VER\"/" "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/include/linux/susfs.h"
-
-        echo "===> Menerapkan source code SUSFS ke kernel..."
-        cp -r "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/fs"/* fs/
-        cp -r "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/include/linux"/* include/linux/
-
-        echo "===> Menerapkan patch SUSFS ke kernel tree..."
-        patch -p1 --forward < "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch" || echo "[WARN] Sebagian patch kernel mungkin sudah terpasang"
-
-        echo "===> Memastikan header susfs_def.h terpasang di fs.h dan task_mmu.c..."
-        sed -i '/#define _LINUX_FS_H/a #ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif' include/linux/fs.h || true
-        grep -q "susfs_def.h" fs/proc/task_mmu.c || sed -i '1i #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c || true
-
-        echo "===> Menyiapkan inisialisasi SUSFS..."
-        sed -i 's/void susfs_init(void) {/late_initcall(susfs_init);\nvoid susfs_init(void) {/' fs/susfs.c || true
-
-        echo "===> Menambahkan glue code SuSFS <-> KernelSU-Next..."
-        cat << 'EOF' >> fs/susfs.c
-
-/* ====================================================================
- * KernelSU-Next & SuSFS Compatibility Glue
- * Provides missing link symbols expected by SuSFS and fs/namespace.c
- * ==================================================================== */
-#include <linux/syscalls.h>
-#include <linux/dcache.h>
-#include <linux/limits.h>
-#include <linux/err.h>
-
-extern bool is_ksu_domain(void);
-extern bool is_zygote(const struct cred *cred);
-
-bool susfs_is_current_ksu_domain(void) {
-    return is_ksu_domain();
-}
-
-bool susfs_is_current_zygote_domain(void) {
-    return is_zygote(current_cred());
-}
-
-#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
-extern bool susfs_is_mnt_devname_ksu(struct path *path);
-
-static bool ksu_should_umount(struct path *path) {
-    if (!path) {
-        return false;
-    }
-#ifdef CONFIG_KSU_SUSFS
-    return susfs_is_mnt_devname_ksu(path);
+repl_h = '''#ifdef CONFIG_KSU_SUSFS
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+int ksu_handle_faccessat(int *dfd, struct filename **filename, int *mode, int *__unused_flags);
+int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
 #else
-    if (path->mnt && path->mnt->mnt_sb && path->mnt->mnt_sb->s_type) {
-        const char *fstype = path->mnt->mnt_sb->s_type->name;
-        return strcmp(fstype, "overlay") == 0;
-    }
-    return false;
+int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *__unused_flags);
+int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
 #endif
-}
+#else'''
 
-static int ksu_umount_mnt(struct path *path, int flags) {
-    int err = 0;
-    char *mnt_name = kzalloc(PATH_MAX, GFP_KERNEL);
-    char *path_name = NULL;
-    mm_segment_t old_fs;
+if target_h in h:
+    h = h.replace(target_h, repl_h, 1)
+    with open('KernelSU/kernel/feature/sucompat.h', 'w') as f:
+        f.write(h)
+    print('[+] sucompat.h successfully patched for 4.19!')
 
-    if (!mnt_name) {
-        pr_err("ksu_umount_mnt: kmalloc failed\n");
-        path_put(path);
-        return -ENOMEM;
-    }
-
-    path_name = d_path(path, mnt_name, PATH_MAX);
-    if (IS_ERR(path_name)) {
-        err = PTR_ERR(path_name);
-        pr_err("ksu_umount_mnt: d_path failed: %d\n", err);
-        goto out;
-    }
-
-    old_fs = get_fs();
-    set_fs(KERNEL_DS);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
-    err = ksys_umount((char __user *)path_name, flags);
-#else
-    err = sys_umount((char __user *)path_name, flags);
-#endif
-    set_fs(old_fs);
-
-    if (err) {
-        pr_warn("ksu_umount_mnt: sys_umount failed: %d\n", err);
-    }
-
-out:
-    path_put(path);
-    kfree(mnt_name);
-    return err;
-}
-
-void ksu_try_umount(const char *mnt, bool check_mnt, int flags, uid_t uid) {
-    struct path path;
-    int err = kern_path(mnt, 0, &path);
-    if (err) {
-        return;
-    }
-    if (check_mnt) {
-        if (!ksu_should_umount(&path)) {
-            path_put(&path);
-            return;
-        }
-    }
-
-#if defined(CONFIG_KSU_SUSFS_ENABLE_LOG)
-    if (susfs_is_log_enabled) {
-        pr_info("susfs: umounting '%s' for uid: %d\n", mnt, uid);
-    }
-#endif
-
-    err = ksu_umount_mnt(&path, flags);
-    if (err) {
-        pr_warn("umount %s failed: %d\n", mnt, err);
-    }
-}
-
-void susfs_try_umount_all(uid_t uid) {
-    susfs_try_umount(uid);
-    ksu_try_umount("/system", true, 0, uid);
-    ksu_try_umount("/system_ext", true, 0, uid);
-    ksu_try_umount("/vendor", true, 0, uid);
-    ksu_try_umount("/product", true, 0, uid);
-    ksu_try_umount("/odm", true, 0, uid);
-    ksu_try_umount("/data/adb/modules", false, MNT_DETACH, uid);
-    ksu_try_umount("/debug_ramdisk", true, MNT_DETACH, uid);
-}
-#endif
-
-void ksu_susfs_enable_sus_su(void) {}
-void ksu_susfs_disable_sus_su(void) {}
-bool susfs_is_allow_su(void) {
-    return is_ksu_domain();
-}
-EOF
-
-        echo "===> Menyesuaikan KernelSU-Next hook dan rules untuk SuSFS..."
-        python3 -c "
-with open('KernelSU-Next/kernel/hook/setuid_hook.c', 'r') as f:
+with open('KernelSU/kernel/feature/sucompat.c', 'r') as f:
     c = f.read()
-target = 'ksu_handle_umount(old_uid, new_uid);'
-replacement = '''ksu_handle_umount(old_uid, new_uid);
-#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
-    {
-        extern void susfs_try_umount_all(uid_t uid);
-        susfs_try_umount_all(new_uid);
-    }
-#endif'''
-if target in c and 'susfs_try_umount_all' not in c:
-    c = c.replace(target, replacement, 1)
-    with open('KernelSU-Next/kernel/hook/setuid_hook.c', 'w') as f:
-        f.write(c)
-    print('setuid_hook.c patched for SuSFS!')
 
-with open('KernelSU-Next/kernel/selinux/rules.c', 'r') as f:
-    c = f.read()
-target = 'ksu_allow(db, \"zygote\", \"adb_data_file\", \"dir\", \"search\");'
-replacement = '''ksu_allow(db, \"zygote\", \"adb_data_file\", \"dir\", \"search\");
-#ifdef CONFIG_KSU_SUSFS
-    ksu_allow(db, \"zygote\", \"labeledfs\", \"filesystem\", \"unmount\");
-#endif'''
-if target in c and 'labeledfs' not in c:
-    c = c.replace(target, replacement, 1)
-    with open('KernelSU-Next/kernel/selinux/rules.c', 'w') as f:
+t1 = '#ifdef CONFIG_KSU_SUSFS\nint ksu_handle_faccessat(int *dfd, struct filename **filename, int *mode, int *__unused_flags)'
+r1 = '#if defined(CONFIG_KSU_SUSFS) && LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\nint ksu_handle_faccessat(int *dfd, struct filename **filename, int *mode, int *__unused_flags)'
+
+t2 = '#ifdef CONFIG_KSU_SUSFS\nint ksu_handle_stat(int *dfd, struct filename **filename, int *flags)'
+r2 = '#if defined(CONFIG_KSU_SUSFS) && LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\nint ksu_handle_stat(int *dfd, struct filename **filename, int *flags)'
+
+if t1 in c and t2 in c:
+    c = c.replace(t1, r1, 1).replace(t2, r2, 1)
+    with open('KernelSU/kernel/feature/sucompat.c', 'w') as f:
         f.write(c)
-    print('rules.c patched for SuSFS!')
+    print('[+] sucompat.c successfully patched for 4.19!')
 "
 
-        echo "===> Menambahkan dispatch SUSFS (reboot-based) ke supercall KernelSU-Next..."
-        cat > ksu_susfs_dispatch_patch.py << 'PYEOF'
-path = 'KernelSU-Next/kernel/supercall/supercall.c'
+    echo "===> Menyesuaikan ReSukiSU supercall dispatch untuk SuSFS 4.19..."
+    cat > patch_dispatch.py << 'PYEOF'
+path = 'KernelSU/kernel/supercall/dispatch.c'
 with open(path, 'r') as f:
-    c = f.read()
+    dc = f.read()
 
-if 'ksu_handle_susfs_sys_reboot' in c:
-    print('[+] supercall.c already patched for SUSFS dispatch')
-else:
-    inc = '#include <linux/version.h>\n#ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs.h>\n#include <linux/susfs_def.h>\n#include <linux/kernel.h>\n#include <linux/string.h>\n#endif\n'
-    c = c.replace('#include <linux/version.h>\n', inc, 1)
+dc = dc.replace('#include <linux/susfs_def.h>', '#include <linux/susfs.h>\n#include <linux/susfs_def.h>')
 
-    susfs_handler = '''
-#ifdef CONFIG_KSU_SUSFS
-#ifndef SUSFS_MAGIC
-#define SUSFS_MAGIC 0xFAFAFAFA
-#endif
+pos_start = dc.find('#ifdef CONFIG_KSU_SUSFS\nint ksu_handle_susfs_cmd')
+pos_end = dc.find('#ifdef CONFIG_KSU_TOOLKIT_SUPPORT', pos_start)
+
+if pos_start != -1 and pos_end != -1:
+    susfs_cmd_handler = r'''#ifdef CONFIG_KSU_SUSFS
 #ifndef SUSFS_MAX_VERSION_BUFSIZE
 #define SUSFS_MAX_VERSION_BUFSIZE 16
 #endif
@@ -364,11 +101,310 @@ struct ksu_susfs_features_cmd {
 	char features[SUSFS_ENABLED_FEATURES_SIZE];
 	int err;
 };
+struct st_susfs_sus_kstat_v2 {
+	bool is_statically;
+	unsigned long target_ino;
+	char target_pathname[SUSFS_MAX_LEN_PATHNAME];
+	unsigned long spoofed_ino;
+	unsigned long spoofed_dev;
+	unsigned int spoofed_nlink;
+	long long spoofed_size;
+	long spoofed_atime_tv_sec;
+	unsigned long spoofed_atime_tv_nsec;
+	long spoofed_mtime_tv_sec;
+	unsigned long spoofed_mtime_tv_nsec;
+	long spoofed_ctime_tv_sec;
+	unsigned long spoofed_ctime_tv_nsec;
+	long long spoofed_blocks;
+	long spoofed_blksize;
+	int flags;
+	int err;
+};
 
-static int ksu_handle_susfs_sys_reboot(unsigned int cmd, void __user **arg)
+int ksu_handle_susfs_cmd(unsigned int cmd, void __user **arg)
 {
 	switch (cmd) {
-	case CMD_SUSFS_SHOW_VERSION: {
+	case 0x55550: /* CMD_SUSFS_ADD_SUS_PATH */
+	case 0x55553: /* CMD_SUSFS_ADD_SUS_PATH_LOOP */ {
+		struct {
+			char target_pathname[SUSFS_MAX_LEN_PATHNAME];
+			int err;
+		} info = {0};
+		struct path p;
+		mm_segment_t old_fs;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+
+		if (!kern_path(info.target_pathname, LOOKUP_FOLLOW, &p)) {
+			struct inode *inode = d_inode(p.dentry);
+			if (inode) {
+				spin_lock(&inode->i_lock);
+				inode->i_state |= (1 << 24); /* INODE_STATE_SUS_PATH */
+				spin_unlock(&inode->i_lock);
+			}
+			path_put(&p);
+		}
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		{
+			struct st_susfs_sus_path k_info = {0};
+			strncpy(k_info.target_pathname, info.target_pathname, sizeof(k_info.target_pathname) - 1);
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			susfs_add_sus_path((struct st_susfs_sus_path __user *)&k_info);
+			set_fs(old_fs);
+		}
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x60020: /* CMD_SUSFS_ADD_SUS_MAP */ {
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		extern void susfs_add_sus_map(void __user **user_info);
+		susfs_add_sus_map(arg);
+#else
+		struct { char target_pathname[SUSFS_MAX_LEN_PATHNAME]; int err; } info = {0};
+		if (!copy_from_user(&info, (void __user*)*arg, sizeof(info))) {
+			info.err = 0;
+			(void)copy_to_user((void __user*)*arg, &info, sizeof(info));
+		}
+#endif
+		return 0;
+	}
+	case 0x55560: /* CMD_SUSFS_ADD_SUS_MOUNT */ {
+		struct {
+			char target_pathname[SUSFS_MAX_LEN_PATHNAME];
+			unsigned long target_dev;
+			int err;
+		} info = {0};
+		mm_segment_t old_fs;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+		{
+			struct st_susfs_sus_mount k_info = {0};
+			strncpy(k_info.target_pathname, info.target_pathname, sizeof(k_info.target_pathname) - 1);
+			k_info.target_dev = info.target_dev;
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			susfs_add_sus_mount((struct st_susfs_sus_mount __user *)&k_info);
+			set_fs(old_fs);
+		}
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x55561: /* CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS */
+	case 0x60010: /* CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING */ {
+		struct {
+			unsigned int enabled;
+			int err;
+		} info = {0};
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x55570: /* CMD_SUSFS_ADD_SUS_KSTAT */
+	case 0x55571: /* CMD_SUSFS_UPDATE_SUS_KSTAT */
+	case 0x55572: /* CMD_SUSFS_ADD_SUS_KSTAT_STATICALLY */ {
+		struct st_susfs_sus_kstat_v2 info = {0};
+		mm_segment_t old_fs;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+		{
+			struct st_susfs_sus_kstat k_info = {0};
+			k_info.is_statically = info.is_statically ? 1 : 0;
+			k_info.target_ino = info.target_ino;
+			strncpy(k_info.target_pathname, info.target_pathname, sizeof(k_info.target_pathname) - 1);
+			k_info.spoofed_ino = info.spoofed_ino;
+			k_info.spoofed_dev = info.spoofed_dev;
+			k_info.spoofed_nlink = info.spoofed_nlink;
+			k_info.spoofed_size = info.spoofed_size;
+			k_info.spoofed_atime_tv_sec = info.spoofed_atime_tv_sec;
+			k_info.spoofed_atime_tv_nsec = (long)info.spoofed_atime_tv_nsec;
+			k_info.spoofed_mtime_tv_sec = info.spoofed_mtime_tv_sec;
+			k_info.spoofed_mtime_tv_nsec = (long)info.spoofed_mtime_tv_nsec;
+			k_info.spoofed_ctime_tv_sec = info.spoofed_ctime_tv_sec;
+			k_info.spoofed_ctime_tv_nsec = (long)info.spoofed_ctime_tv_nsec;
+			k_info.spoofed_blksize = (unsigned long)info.spoofed_blksize;
+			k_info.spoofed_blocks = (unsigned long long)info.spoofed_blocks;
+
+			if (k_info.target_ino == 0 && strlen(k_info.target_pathname) > 0) {
+				struct path p;
+				if (!kern_path(k_info.target_pathname, LOOKUP_FOLLOW, &p)) {
+					if (d_inode(p.dentry))
+						k_info.target_ino = d_inode(p.dentry)->i_ino;
+					path_put(&p);
+				}
+			}
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			if (cmd == 0x55571) {
+				susfs_update_sus_kstat((struct st_susfs_sus_kstat __user *)&k_info);
+			} else {
+				susfs_add_sus_kstat((struct st_susfs_sus_kstat __user *)&k_info);
+			}
+			set_fs(old_fs);
+		}
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x55580: /* CMD_SUSFS_ADD_TRY_UMOUNT */ {
+		struct {
+			char target_pathname[SUSFS_MAX_LEN_PATHNAME];
+			int mnt_mode;
+			int err;
+		} info = {0};
+		mm_segment_t old_fs;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+		{
+			struct st_susfs_try_umount k_info = {0};
+			strncpy(k_info.target_pathname, info.target_pathname, sizeof(k_info.target_pathname) - 1);
+			k_info.mnt_mode = info.mnt_mode;
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			susfs_add_try_umount((struct st_susfs_try_umount __user *)&k_info);
+			set_fs(old_fs);
+		}
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x555b0: /* CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG */ {
+		int err = 0;
+#ifdef CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+		susfs_set_cmdline_or_bootconfig((char __user*)*arg);
+#endif
+		/* ReSukiSU ksud uses 8192 buffer, simonpunk uses 4096; write 0 to both offsets */
+		(void)copy_to_user((void __user*)(*arg + 4096), &err, sizeof(err));
+		(void)copy_to_user((void __user*)(*arg + 8192), &err, sizeof(err));
+		return 0;
+	}
+	case 0x555c0: /* CMD_SUSFS_ADD_OPEN_REDIRECT */ {
+		struct {
+			char target_pathname[SUSFS_MAX_LEN_PATHNAME];
+			char redirected_pathname[SUSFS_MAX_LEN_PATHNAME];
+			unsigned int uid_scheme;
+			int err;
+		} info = {0};
+		mm_segment_t old_fs;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+		{
+			struct st_susfs_open_redirect k_info = {0};
+			struct path p;
+			strncpy(k_info.target_pathname, info.target_pathname, sizeof(k_info.target_pathname) - 1);
+			strncpy(k_info.redirected_pathname, info.redirected_pathname, sizeof(k_info.redirected_pathname) - 1);
+			if (!kern_path(info.target_pathname, LOOKUP_FOLLOW, &p)) {
+				struct inode *inode = d_inode(p.dentry);
+				if (inode) {
+					k_info.target_ino = inode->i_ino;
+					spin_lock(&inode->i_lock);
+					inode->i_state |= (1 << 27); /* INODE_STATE_OPEN_REDIRECT */
+					spin_unlock(&inode->i_lock);
+				}
+				path_put(&p);
+			}
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			susfs_add_open_redirect((struct st_susfs_open_redirect __user *)&k_info);
+			set_fs(old_fs);
+		}
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x55590: /* CMD_SUSFS_SET_UNAME */ {
+		struct {
+			char release[65];
+			char version[65];
+			int err;
+		} info = {0};
+		mm_segment_t old_fs;
+
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+		{
+			struct st_susfs_uname k_info = {0};
+			strncpy(k_info.release, info.release, sizeof(k_info.release) - 1);
+			strncpy(k_info.version, info.version, sizeof(k_info.version) - 1);
+			old_fs = get_fs();
+			set_fs(KERNEL_DS);
+			susfs_set_uname((struct st_susfs_uname __user *)&k_info);
+			set_fs(old_fs);
+		}
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x555a0: /* CMD_SUSFS_ENABLE_LOG */ {
+		struct {
+			unsigned int enabled;
+			int err;
+		} info = {0};
+		if (copy_from_user(&info, (void __user*)*arg, sizeof(info)))
+			return -EFAULT;
+#ifdef CONFIG_KSU_SUSFS_ENABLE_LOG
+		susfs_set_log(info.enabled != 0);
+#endif
+		info.err = 0;
+		if (copy_to_user((void __user*)*arg, &info, sizeof(info)))
+			return -EFAULT;
+		return 0;
+	}
+	case 0x555d0: /* CMD_SUSFS_RUN_UMOUNT_FOR_CURRENT_MNT_NS */ {
+		struct {
+			int err;
+		} info = {0};
+#ifdef CONFIG_KSU_SUSFS_TRY_UMOUNT
+		susfs_try_umount(current_uid().val);
+#endif
+		info.err = 0;
+		(void)copy_to_user((void __user*)*arg, &info, sizeof(info));
+		return 0;
+	}
+	case 0x555e4: /* CMD_SUSFS_SHOW_SUS_SU_WORKING_MODE */ {
+		struct { int mode; int err; } info = { .mode = 0, .err = 0 };
+		(void)copy_to_user((void __user*)*arg, &info, sizeof(info));
+		return 0;
+	}
+	case 0x555f0: /* CMD_SUSFS_IS_SUS_SU_READY */ {
+		struct { bool ready; int err; } info = { .ready = false, .err = 0 };
+		(void)copy_to_user((void __user*)*arg, &info, sizeof(info));
+		return 0;
+	}
+	case 0x60000: /* CMD_SUSFS_SUS_SU */ {
+		struct { int mode; int err; } info = { .mode = 0, .err = 0 };
+		(void)copy_to_user((void __user*)*arg, &info, sizeof(info));
+		return 0;
+	}
+	case 0x55551:
+	case 0x555e1: { /* CMD_SUSFS_SHOW_VERSION */
 		struct ksu_susfs_version_cmd v = {0};
 		scnprintf(v.version, sizeof(v.version), "%s", SUSFS_VERSION);
 		v.err = 0;
@@ -376,7 +412,7 @@ static int ksu_handle_susfs_sys_reboot(unsigned int cmd, void __user **arg)
 			return -EFAULT;
 		return 0;
 	}
-	case CMD_SUSFS_SHOW_VARIANT: {
+	case 0x555e3: { /* CMD_SUSFS_SHOW_VARIANT */
 		struct ksu_susfs_variant_cmd var = {0};
 		scnprintf(var.variant, sizeof(var.variant), "%s", SUSFS_VARIANT);
 		var.err = 0;
@@ -384,7 +420,8 @@ static int ksu_handle_susfs_sys_reboot(unsigned int cmd, void __user **arg)
 			return -EFAULT;
 		return 0;
 	}
-	case CMD_SUSFS_SHOW_ENABLED_FEATURES: {
+	case 0x55552:
+	case 0x555e2: { /* CMD_SUSFS_SHOW_ENABLED_FEATURES */
 		struct ksu_susfs_features_cmd *feat;
 		char *p;
 		size_t remain;
@@ -447,6 +484,10 @@ static int ksu_handle_susfs_sys_reboot(unsigned int cmd, void __user **arg)
 		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_OPEN_REDIRECT\n");
 		p += n; remain -= n;
 #endif
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_MAP\n");
+		p += n; remain -= n;
+#endif
 #ifdef CONFIG_KSU_SUSFS_SUS_SU
 		n = scnprintf(p, remain, "CONFIG_KSU_SUSFS_SUS_SU\n");
 		p += n; remain -= n;
@@ -463,110 +504,398 @@ static int ksu_handle_susfs_sys_reboot(unsigned int cmd, void __user **arg)
 		return 0;
 	}
 }
+#endif'''
+
+    dc = dc[:pos_start] + susfs_cmd_handler + '\n' + dc[pos_end:]
+    with open(path, 'w') as f:
+        f.write(dc)
+    print('[+] ReSukiSU dispatch.c successfully wired to SuSFS 4.19!')
+PYEOF
+    python3 patch_dispatch.py && rm -f patch_dispatch.py
+
+    echo "===> Menerapkan 8 Manual Kernel Hooks untuk ReSukiSU..."
+    python3 -c "
+# 1. kernel/sys.c
+with open('kernel/sys.c', 'r') as f:
+    c = f.read()
+target_sys = 'long __sys_setresuid(uid_t ruid, uid_t euid, uid_t suid)\n{\n'
+hook_sys = '''\
+#ifdef CONFIG_KSU
+	extern int ksu_handle_setresuid(uid_t ruid, uid_t euid, uid_t suid);
+	ksu_handle_setresuid(ruid, euid, suid);
 #endif
 '''
-    c = c.replace('int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,', susfs_handler + '\nint ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,', 1)
-
-    route_anchor = '\tu64 reply = (u64)*arg;\n\n\tif (magic2 == CHANGE_MANAGER_UID) {'
-    route_repl = '\tu64 reply = (u64)*arg;\n\n#ifdef CONFIG_KSU_SUSFS\n\tif ((unsigned int)magic2 == 0xFAFAFAFA) {\n\t\treturn ksu_handle_susfs_sys_reboot(cmd, arg);\n\t}\n#endif\n\n\tif (magic2 == CHANGE_MANAGER_UID) {'
-    if route_anchor in c:
-        c = c.replace(route_anchor, route_repl, 1)
-    else:
-        print('[WARN] supercall.c SUSFS route anchor not found')
-
-    with open(path, 'w') as f:
+if target_sys in c and 'ksu_handle_setresuid' not in c:
+    c = c.replace(target_sys, target_sys + hook_sys, 1)
+    with open('kernel/sys.c', 'w') as f:
         f.write(c)
-    print('[+] supercall.c patched for SUSFS dispatch')
-PYEOF
-        python3 ksu_susfs_dispatch_patch.py && rm -f ksu_susfs_dispatch_patch.py
+    print('[+] kernel/sys.c hooked!')
 
-        echo "===> Menambahkan definisi Kconfig SuSFS..."
-        cat << 'EOF' >> KernelSU-Next/kernel/Kconfig
+# 2. kernel/reboot.c
+with open('kernel/reboot.c', 'r') as f:
+    c = f.read()
+target_reboot = '\t/* We only trust the superuser with rebooting the system. */'
+hook_reboot = '''\
+#ifdef CONFIG_KSU
+	{
+		extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
+		ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+		if (magic1 == 0xDEADBEEF)
+			return 0;
+	}
+#endif
+'''
+if target_reboot in c and 'ksu_handle_sys_reboot' not in c:
+    c = c.replace(target_reboot, hook_reboot + target_reboot, 1)
+    with open('kernel/reboot.c', 'w') as f:
+        f.write(c)
+    print('[+] kernel/reboot.c hooked!')
 
-menu "KernelSU - SUSFS"
-config KSU_SUSFS
-    bool "KernelSU addon - SUSFS"
-    depends on KSU
-    default y
+# 3. fs/exec.c
+with open('fs/exec.c', 'r') as f:
+    c = f.read()
+target_exec_hdr = 'static int do_execveat_common(int fd, struct filename *filename,'
+hook_exec_hdr = '''\
+#ifdef CONFIG_KSU
+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
+				void *argv, void *envp, int *flags);
+extern int ksu_handle_post_execveat(int *fd, struct filename **filename_ptr,
+				void *argv, void *envp, int *flags, int *retval);
+#endif
+'''
+target_exec_body = '\treturn __do_execve_file(fd, filename, argv, envp, flags, NULL);'
+hook_exec_body = '''\
+#ifdef CONFIG_KSU
+	int retval;
+	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
+	retval = __do_execve_file(fd, filename, argv, envp, flags, NULL);
+	ksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval);
+	return retval;
+#else
+	return __do_execve_file(fd, filename, argv, envp, flags, NULL);
+#endif
+'''
+if target_exec_hdr in c and 'ksu_handle_execveat' not in c:
+    c = c.replace(target_exec_hdr, hook_exec_hdr + target_exec_hdr, 1)
+    c = c.replace(target_exec_body, hook_exec_body, 1)
+    with open('fs/exec.c', 'w') as f:
+        f.write(c)
+    print('[+] fs/exec.c hooked!')
 
-config KSU_SUSFS_HAS_MAGIC_MOUNT
-    bool "Magic mount support"
-    depends on KSU
-    default y
+# 4. fs/open.c
+with open('fs/open.c', 'r') as f:
+    c = f.read()
+target_open = 'long do_faccessat(int dfd, const char __user *filename, int mode)\n{\n'
+hook_open = '''\
+#ifdef CONFIG_KSU
+	{
+		extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);
+		ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+	}
+#endif
+'''
+if target_open in c and 'ksu_handle_faccessat' not in c:
+    c = c.replace(target_open, target_open + hook_open, 1)
+    with open('fs/open.c', 'w') as f:
+        f.write(c)
+    print('[+] fs/open.c hooked!')
 
-config KSU_SUSFS_SUS_PATH
-    bool "Hide suspicious path"
-    depends on KSU_SUSFS
-    default y
+# 5. fs/read_write.c
+with open('fs/read_write.c', 'r') as f:
+    c = f.read()
+target_rw = 'SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)\n{\n'
+hook_rw = '''\
+#ifdef CONFIG_KSU
+	{
+		extern int ksu_handle_sys_read(unsigned int fd, char __user **buf_ptr, size_t *count_ptr);
+		ksu_handle_sys_read(fd, &buf, &count);
+	}
+#endif
+'''
+if target_rw in c and 'ksu_handle_sys_read' not in c:
+    c = c.replace(target_rw, target_rw + hook_rw, 1)
+    with open('fs/read_write.c', 'w') as f:
+        f.write(c)
+    print('[+] fs/read_write.c hooked!')
 
-config KSU_SUSFS_SUS_MOUNT
-    bool "Hide suspicious mounts"
-    depends on KSU_SUSFS
-    default y
+# 6. fs/stat.c (with native fake_ino=2 for Duck Detector)
+with open('fs/stat.c', 'r') as f:
+    c = f.read()
+target_stat = 'SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,\n\t\tstruct stat __user *, statbuf, int, flag)\n{\n\tstruct kstat stat;\n\tint error;\n\n'
+hook_stat = '''\
+#ifdef CONFIG_KSU
+	{
+		extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);
+		ksu_handle_stat(&dfd, &filename, &flag);
+	}
+#endif
+'''
+stat_err_check = 'if (error)\n\t\treturn error;\n'
+hook_spoof_ino = '''if (error)
+		return error;
+#ifdef CONFIG_KSU
+	if (filename) {
+		char pbuf[32];
+		if (strncpy_from_user_nofault(pbuf, filename, sizeof(pbuf)) > 0) {
+			if (!strcmp(pbuf, "/data/local/tmp") || !strcmp(pbuf, "/data/local/tmp/")) {
+				stat.ino = 2;
+			}
+		}
+	}
+#endif
+'''
+if target_stat in c and 'ksu_handle_stat' not in c:
+    c = c.replace(target_stat, target_stat + hook_stat, 1)
+    c = c.replace(stat_err_check, hook_spoof_ino, 1)
+    with open('fs/stat.c', 'w') as f:
+        f.write(c)
+    print('[+] fs/stat.c hooked!')
 
-config KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
-    bool "Auto add KSU default mount"
-    depends on KSU_SUSFS_SUS_MOUNT
-    default y
+# 7. drivers/input/input.c
+with open('drivers/input/input.c', 'r') as f:
+    c = f.read()
+target_input = 'static void input_handle_event(struct input_dev *dev,\n\t\t\t       unsigned int type, unsigned int code, int value)\n{\n'
+hook_input = '''\
+#ifdef CONFIG_KSU
+	{
+		extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);
+		ksu_handle_input_handle_event(&type, &code, &value);
+	}
+#endif
+'''
+if target_input in c and 'ksu_handle_input_handle_event' not in c:
+    c = c.replace(target_input, target_input + hook_input, 1)
+    with open('drivers/input/input.c', 'w') as f:
+        f.write(c)
+    print('[+] drivers/input/input.c hooked!')
 
-config KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
-    bool "Auto add bind mount"
-    depends on KSU_SUSFS_SUS_MOUNT
-    default y
+# 8. security/selinux/selinuxfs.c
+with open('security/selinux/selinuxfs.c', 'r') as f:
+    c = f.read()
+c = c.replace('static const struct file_operations sel_handle_status_ops = {', 'const struct file_operations sel_handle_status_ops = {', 1)
+c = c.replace('static const struct file_operations transaction_ops = {', 'const struct file_operations transaction_ops = {', 1)
+with open('security/selinux/selinuxfs.c', 'w') as f:
+    f.write(c)
+print('[+] security/selinux/selinuxfs.c un-static OK!')
+"
 
-config KSU_SUSFS_SUS_KSTAT
-    bool "Spoof kstat"
-    depends on KSU_SUSFS
-    default y
+    if [ "$ENABLE_SUS" = "true" ]; then
+        echo "===> Mengambil Patch SUSFS 4.19 (Upstream simonpunk)..."
+        git clone --depth=1 -b kernel-4.19 https://gitlab.com/simonpunk/susfs4ksu.git "$GITHUB_WORKSPACE/susfs4ksu"
 
-config KSU_SUSFS_SUS_OVERLAYFS
-    bool "Spoof overlayfs"
-    depends on KSU_SUSFS
-    default y
+        echo "===> Menyesuaikan versi SUSFS Header ke $SUS_VER..."
+        sed -i "s/#define SUSFS_VERSION .*/#define SUSFS_VERSION \"$SUS_VER\"/" "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/include/linux/susfs.h"
 
-config KSU_SUSFS_TRY_UMOUNT
-    bool "Try umount"
-    depends on KSU_SUSFS
-    default y
+        echo "===> Menerapkan source code SUSFS ke kernel..."
+        cp -r "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/fs"/* fs/
+        cp -r "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/include/linux"/* include/linux/
 
-config KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
-    bool "Auto add try umount for bind mount"
-    depends on KSU_SUSFS_TRY_UMOUNT
-    default y
+        echo "===> Menerapkan patch SUSFS ke kernel tree..."
+        patch -p1 --forward < "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch" || echo "[WARN] Sebagian patch kernel mungkin sudah terpasang"
 
-config KSU_SUSFS_SPOOF_UNAME
-    bool "Spoof uname"
-    depends on KSU_SUSFS
-    default y
+        echo "===> Menambahkan susfs_extra_works dan sdcard monitor ke fs/susfs.c..."
+        python3 -c "
+with open('fs/susfs.c', 'r') as f:
+    c = f.read()
 
-config KSU_SUSFS_ENABLE_LOG
-    bool "Enable log"
-    depends on KSU_SUSFS
-    default y
+target = '/* susfs_init */\nvoid susfs_init(void) {\n\tspin_lock_init(&susfs_spin_lock);'
+repl = '''struct work_struct susfs_extra_works;
+static void susfs_run_extra_works(struct work_struct *work) {}
+void susfs_start_sdcard_monitor_fn(void) {}
 
-config KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-    bool "Hide symbols"
-    depends on KSU_SUSFS
-    default y
+/* susfs_init */
+void susfs_init(void) {
+	INIT_WORK(&susfs_extra_works, susfs_run_extra_works);
+	spin_lock_init(&susfs_spin_lock);'''
 
-config KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
-    bool "Spoof cmdline"
-    depends on KSU_SUSFS
-    default y
+if target in c:
+    c = c.replace(target, repl, 1)
+    with open('fs/susfs.c', 'w') as f:
+        f.write(c)
+    print('[+] fs/susfs.c extra works added!')
+"
 
-config KSU_SUSFS_OPEN_REDIRECT
-    bool "Open redirect"
-    depends on KSU_SUSFS
-    default y
+        echo "===> Memastikan header susfs_def.h terpasang di fs.h dan task_mmu.c..."
+        sed -i '/#define _LINUX_FS_H/a #ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif' include/linux/fs.h || true
+        grep -q "susfs_def.h" fs/proc/task_mmu.c || sed -i '1i #ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c || true
 
-config KSU_SUSFS_SUS_SU
-    bool "SUS SU"
-    depends on KSU_SUSFS
-    default n
-endmenu
+        echo "===> Menambahkan dukungan SUS_MAP, SUSFS_MAGIC, dan GKI SuSFS helpers ke header SuSFS..."
+        cat << 'EOF' >> include/linux/susfs_def.h
+
+#ifndef _KSU_SUSFS_DEF_EXT_H
+#define _KSU_SUSFS_DEF_EXT_H
+
+#ifndef SUSFS_MAGIC
+#define SUSFS_MAGIC 0xFAFAFAFA
+#endif
+#ifndef CMD_SUSFS_ADD_SUS_MAP
+#define CMD_SUSFS_ADD_SUS_MAP 0x60020
+#endif
+#ifndef AS_FLAGS_SUS_MAP
+#define AS_FLAGS_SUS_MAP 39
+#endif
+#ifndef SUSFS_IS_INODE_SUS_MAP
+#define SUSFS_IS_INODE_SUS_MAP(inode) \
+	(inode && inode->i_mapping && \
+	unlikely(test_bit(AS_FLAGS_SUS_MAP, &inode->i_mapping->flags)) && \
+	(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC))
+#endif
+
+#include <linux/thread_info.h>
+#ifndef TIF_PROC_UMOUNTED
+#define TIF_PROC_UMOUNTED 33
+#endif
+#ifndef TIF_PROC_NO_SU
+#define TIF_PROC_NO_SU 34
+#endif
+#ifndef TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT
+#define TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT 35
+#endif
+
+static inline bool susfs_is_current_proc_umounted(void) {
+	return (likely(test_thread_flag(TIF_PROC_UMOUNTED)));
+}
+
+static inline void susfs_set_current_proc_umounted(void) {
+	set_thread_flag(TIF_PROC_UMOUNTED);
+}
+
+static inline void susfs_clear_current_proc_umounted(void) {
+	clear_thread_flag(TIF_PROC_UMOUNTED);
+}
+
+static inline bool susfs_is_current_proc_umounted_for_zygote_next(void) {
+	return (likely(test_thread_flag(TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT)));
+}
+
+static inline void susfs_set_current_proc_umounted_for_zygote_next(void) {
+	set_thread_flag(TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT);
+}
+
+static inline void susfs_clear_current_proc_umounted_for_zygote_next(void) {
+	clear_thread_flag(TIF_PROC_UMOUNTED_FOR_ZYGOTE_NEXT);
+}
+
+static inline bool susfs_is_current_proc_no_su(void) {
+	return (likely(test_thread_flag(TIF_PROC_NO_SU)));
+}
+
+static inline void susfs_set_current_proc_no_su(void) {
+	set_thread_flag(TIF_PROC_NO_SU);
+}
+
+static inline void susfs_clear_current_proc_no_su(void) {
+	clear_thread_flag(TIF_PROC_NO_SU);
+}
+#endif /* _KSU_SUSFS_DEF_EXT_H */
+EOF
+
+        cat << 'EOF' >> include/linux/susfs.h
+
+#ifndef _KSU_SUSFS_EXT_H
+#define _KSU_SUSFS_EXT_H
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+struct st_susfs_sus_map {
+    char target_pathname[256];
+    int err;
+};
+void susfs_add_sus_map(void __user **user_info);
+#endif
+#endif /* _KSU_SUSFS_EXT_H */
+EOF
+
+        echo "===> Menerapkan hook SUS_MAP ke fs/proc/task_mmu.c..."
+        python3 -c "
+with open('fs/proc/task_mmu.c', 'r') as f:
+    c = f.read()
+
+target_vma = 'static void\nshow_map_vma(struct seq_file *m, struct vm_area_struct *vma)\n{\n'
+repl_vma = '''#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+static inline bool susfs_is_vma_sus_map(struct vm_area_struct *vma) {
+    struct file *file = vma->vm_file;
+    if (file && SUSFS_IS_INODE_SUS_MAP(file_inode(file))) {
+        return true;
+    }
+    return false;
+}
+#endif
+
+static void
+show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
+{
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+    if (susfs_is_vma_sus_map(vma)) {
+        return;
+    }
+#endif
+'''
+
+if target_vma in c and 'susfs_is_vma_sus_map' not in c:
+    c = c.replace(target_vma, repl_vma, 1)
+    print('show_map_vma hooked for sus_map!')
+
+target_smap = 'static int show_smap(struct seq_file *m, void *v)\n{\n\tstruct vm_area_struct *vma = v;\n\tstruct mem_size_stats mss;\n'
+repl_smap = '''static int show_smap(struct seq_file *m, void *v)
+{
+	struct vm_area_struct *vma = v;
+	struct mem_size_stats mss;
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+	if (susfs_is_vma_sus_map(vma)) {
+		return 0;
+	}
+#endif
+'''
+
+if target_smap in c and 'susfs_is_vma_sus_map(vma)' not in c:
+    c = c.replace(target_smap, repl_smap, 1)
+    print('show_smap hooked for sus_map!')
+
+with open('fs/proc/task_mmu.c', 'w') as f:
+    f.write(c)
+"
+
+        echo "===> Menambahkan implementasi susfs_add_sus_map ke fs/susfs.c..."
+        cat << 'EOF' >> fs/susfs.c
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MAP
+void susfs_add_sus_map(void __user **user_info) {
+	struct st_susfs_sus_map info = {0};
+	struct path path;
+	struct inode *inode = NULL;
+
+	if (copy_from_user(&info, (struct st_susfs_sus_map __user*)*user_info, sizeof(info))) {
+		info.err = -EFAULT;
+		goto out_copy_to_user;
+	}
+
+	info.err = kern_path(info.target_pathname, LOOKUP_FOLLOW, &path);
+	if (info.err) {
+		pr_err("susfs: failed opening file '%s'\n", info.target_pathname);
+		goto out_copy_to_user;
+	}
+
+	inode = d_inode(path.dentry);
+	if (!inode || !inode->i_mapping) {
+		pr_err("susfs: inode || inode->i_mapping is NULL\n");
+		info.err = -ENOENT;
+		goto out_path_put_path;
+	}
+	set_bit(AS_FLAGS_SUS_MAP, &inode->i_mapping->flags);
+	pr_info("susfs: pathname: '%s', is flagged as AS_FLAGS_SUS_MAP\n", info.target_pathname);
+	info.err = 0;
+out_path_put_path:
+	path_put(&path);
+out_copy_to_user:
+	if (copy_to_user(&((struct st_susfs_sus_map __user*)*user_info)->err, &info.err, sizeof(info.err))) {
+		info.err = -EFAULT;
+	}
+	pr_info("susfs: CMD_SUSFS_ADD_SUS_MAP -> ret: %d\n", info.err);
+}
+#endif
 EOF
     fi
 
-    echo "===> Mengaktifkan config KernelSU & SUSFS di defconfig..."
+    echo "===> Menerapkan konfigurasi KSU dan SUSFS..."
     cat "$GITHUB_WORKSPACE/configs/ksu_susfs.config" >> "$DEFCONFIG_PATH"
+    echo "[+] Konfigurasi KernelSU dan SUSFS berhasil disatukan."
 fi

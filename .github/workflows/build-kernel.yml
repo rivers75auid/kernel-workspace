@@ -1,4 +1,4 @@
-name: Build Redmi 10C Kernel (KernelSU-Next + SUSFS v2.3.0 + Potato Suite)
+name: Build Redmi 10C Kernel (ReSukiSU + SUSFS v2.3.0 + Potato Suite)
 
 on:
   workflow_dispatch:
@@ -19,8 +19,8 @@ on:
         description: 'Defconfig name'
         required: true
         default: 'vendor/fog-perf_defconfig'
-      ENABLE_KSU_NEXT:
-        description: 'Integrate KernelSU-Next'
+      ENABLE_RESUKISU:
+        description: 'Integrate ReSukiSU'
         required: true
         type: boolean
         default: true
@@ -50,7 +50,7 @@ on:
 
 jobs:
   build:
-    name: Build Kernel (KSU-Next + SUSFS)
+    name: Build Kernel (SUSFS)
     runs-on: ubuntu-22.04
 
     steps:
@@ -105,11 +105,11 @@ jobs:
           echo "===> Cloning Canonical Kernel Source from $REPO ($BRANCH)..."
           git clone --depth=1 "https://github.com/$REPO.git" -b "$BRANCH" "$GITHUB_WORKSPACE/kernel_source"
 
-      - name: Setup KernelSU-Next & SUSFS Patches
+      - name: Setup ReSukiSU & SUSFS Patches
         run: |
           chmod +x "$GITHUB_WORKSPACE/scripts/setup-ksu-susfs.sh"
           bash "$GITHUB_WORKSPACE/scripts/setup-ksu-susfs.sh" \
-            "${{ github.event.inputs.ENABLE_KSU_NEXT || 'true' }}" \
+            "${{ github.event.inputs.ENABLE_RESUKISU || 'true' }}" \
             "true" \
             "${{ github.event.inputs.SUSFS_VERSION_TAG || 'v2.3.0' }}" \
             "${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
@@ -261,7 +261,7 @@ jobs:
           [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ] && exit 0
 
           JOB_STATUS="${{ job.status }}"
-          VARIANT="KSU-Next + SUSFS"
+          VARIANT="SUSFS"
           ZIP_FILE="$GITHUB_WORKSPACE/output/${{ env.ZIP_NAME }}"
 
           if [ "$JOB_STATUS" = "success" ]; then

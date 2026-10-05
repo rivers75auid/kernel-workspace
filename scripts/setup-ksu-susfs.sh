@@ -697,9 +697,12 @@ print('[+] security/selinux/selinuxfs.c un-static OK!')
         sed -i '/#define _LINUX_FS_H/a #ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif' include/linux/fs.h || true
         grep -q "susfs_def.h" fs/proc/task_mmu.c || sed -i '1i #ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif' fs/proc/task_mmu.c || true
 
-        echo "===> Menambahkan dukungan SUS_MAP ke header SuSFS..."
+        echo "===> Menambahkan dukungan SUS_MAP dan SUSFS_MAGIC ke header SuSFS..."
         cat << 'EOF' >> include/linux/susfs_def.h
 
+#ifndef SUSFS_MAGIC
+#define SUSFS_MAGIC 0xFAFAFAFA
+#endif
 #ifndef CMD_SUSFS_ADD_SUS_MAP
 #define CMD_SUSFS_ADD_SUS_MAP 0x60020
 #endif

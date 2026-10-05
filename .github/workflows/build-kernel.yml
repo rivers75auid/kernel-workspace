@@ -136,6 +136,10 @@ jobs:
           echo "===> Fixing MemAvailable overflow / MGLRU counter leak..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-memavailable.py"
 
+          echo "===> Enabling Novatek touchscreen ESD recovery & edge ghost-touch fix..."
+          sed -i 's/#define NVT_TOUCH_ESD_PROTECT 0/#define NVT_TOUCH_ESD_PROTECT 1/g' drivers/input/touchscreen/nt36xxx/nt36xxx.h 2>/dev/null || true
+          sed -i 's/#define NVT_TOUCH_ESD_PROTECT 0/#define NVT_TOUCH_ESD_PROTECT 1/g' drivers/input/touchscreen/nt36525b_spi/nt36xxx.h 2>/dev/null || true
+
           if [ "$OPT_POTATO" = "true" ]; then
             echo "===> Enabling Potato Tuning Suite (WALT/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
             cat "$GITHUB_WORKSPACE/configs/potato.config" >> "$DEFCONFIG_PATH"

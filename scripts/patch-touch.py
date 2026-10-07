@@ -23,25 +23,52 @@ def patch_nt36xxx():
                     f.write(content)
                 print(f"[+] Enabled NVT_TOUCH_ESD_PROTECT in {h_file}")
 
-        # 2. Filter zero-area / zero-pressure phantom ghost touches in C source
+        # 2. Patch C source: ghost touch filter, KEY_POWER for D2TW, and default gesture mode
         c_file = os.path.join(d, "nt36xxx.c")
         if os.path.exists(c_file):
             with open(c_file, "r", encoding="utf-8", errors="ignore") as f:
                 c_content = f.read()
 
-            target = "input_w = (uint32_t)(point_data[position + 4]);"
-            replacement = (
+            # Filter electrical noise & bezel stray capacitance
+            target_filter = "input_w = (uint32_t)(point_data[position + 4]);"
+            repl_filter = (
                 "/* Filter electrical noise & bezel stray capacitance */\n"
                 "\t\t\tif (point_data[position + 4] == 0 && point_data[position + 5] == 0)\n"
                 "\t\t\t\tcontinue;\n"
                 "\t\t\tinput_w = (uint32_t)(point_data[position + 4]);"
             )
+            if target_filter in c_content and "Filter electrical noise" not in c_content:
+                c_content = c_content.replace(target_filter, repl_filter, 1)
+                print(f"[+] Injected ghost touch filter in {c_file}")
 
-            if target in c_content and "Filter electrical noise" not in c_content:
-                c_content = c_content.replace(target, replacement, 1)
-                with open(c_file, "w", encoding="utf-8", newline="\n") as f:
-                    f.write(c_content)
-                print(f"[+] Injected zero-width/zero-pressure ghost touch filter in {c_file}")
+            # Map GESTURE_DOUBLE_CLICK to KEY_POWER so Android PhoneWindowManager turns on display
+            target_key = "KEY_WAKEUP,  //GESTURE_DOUBLE_CLICK"
+            repl_key = "KEY_POWER,   //GESTURE_DOUBLE_CLICK (Double Tap To Wake via KEY_POWER)"
+            if target_key in c_content:
+                c_content = c_content.replace(target_key, repl_key, 1)
+                print(f"[+] Mapped GESTURE_DOUBLE_CLICK to KEY_POWER in {c_file}")
+
+            # Initialize ts->is_gesture_mode = true in probe so D2TW is armed immediately
+            target_init = 'ts->stylus_resol_double = of_property_read_bool(np, "novatek,stylus-resol-double");'
+            repl_init = 'ts->stylus_resol_double = of_property_read_bool(np, "novatek,stylus-resol-double");\n\tts->is_gesture_mode = true; /* Enable D2TW gesture mode by default */'
+            if target_init in c_content and "is_gesture_mode = true" not in c_content:
+                c_content = c_content.replace(target_init, repl_init, 1)
+                print(f"[+] Enabled ts->is_gesture_mode by default in {c_file}")
+
+            # Allow gesture callback to arm immediately without waiting for screen cycle
+            target_delay = (
+                "\tif (!bTouchIsAwake) {\n"
+                "\t\tts->delay_gesture = true;\n"
+                '\t\tNVT_LOG("The gesture mode will be %s the next time you wakes up.\\n", flag?"enabled":"disbaled");\n'
+                "\t\treturn 0;\n"
+                "\t}"
+            )
+            if target_delay in c_content:
+                c_content = c_content.replace(target_delay, "\t/* Arm gesture mode immediately */", 1)
+                print(f"[+] Removed bTouchIsAwake delay in gesture callback in {c_file}")
+
+            with open(c_file, "w", encoding="utf-8", newline="\n") as f:
+                f.write(c_content)
 
 def patch_lct_gesture():
     kernel_root = os.getcwd()
@@ -95,27 +122,25 @@ def patch_focaltech():
                     f.write(content)
                 print(f"[+] Enabled FTS_GESTURE_EN in {cfg_h}")
 
-        # 2. Fix Double-Tap event: change KEY_GESTURE_U (letter U) to KEY_WAKEUP (wake screen)
+        # 2. Fix Double-Tap event: change KEY_GESTURE_U (letter U) to KEY_POWER (wake screen)
         gest_c = os.path.join(d, "focaltech_gesture.c")
         if os.path.exists(gest_c):
             with open(gest_c, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
             target_key = "case GESTURE_DOUBLECLICK:\n        gesture = KEY_GESTURE_U;"
-            repl_key = "case GESTURE_DOUBLECLICK:\n        gesture = KEY_WAKEUP; /* Wake screen instead of letter U */"
-
-            target_key_alt = "case GESTURE_DOUBLECLICK:\n\t\tgesture = KEY_POWER;"
+            repl_key = "case GESTURE_DOUBLECLICK:\n        gesture = KEY_POWER; /* Wake screen via KEY_POWER */"
 
             if target_key in content:
                 content = content.replace(target_key, repl_key, 1)
                 with open(gest_c, "w", encoding="utf-8", newline="\n") as f:
                     f.write(content)
-                print(f"[+] Fixed FocalTech GESTURE_DOUBLECLICK -> KEY_WAKEUP in {gest_c}")
+                print(f"[+] Fixed FocalTech GESTURE_DOUBLECLICK -> KEY_POWER in {gest_c}")
             elif "KEY_GESTURE_U" in content:
-                content = content.replace("gesture = KEY_GESTURE_U;", "gesture = KEY_WAKEUP;", 1)
+                content = content.replace("gesture = KEY_GESTURE_U;", "gesture = KEY_POWER;", 1)
                 with open(gest_c, "w", encoding="utf-8", newline="\n") as f:
                     f.write(content)
-                print(f"[+] Replaced KEY_GESTURE_U with KEY_WAKEUP in {gest_c}")
+                print(f"[+] Replaced KEY_GESTURE_U with KEY_POWER in {gest_c}")
 
 if __name__ == "__main__":
     patch_nt36xxx()

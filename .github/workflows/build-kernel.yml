@@ -176,13 +176,25 @@ jobs:
           echo "===> Mengonfigurasi defconfig: $DEFCONFIG..."
           make -j$(nproc --all) ARCH=arm64 O=out "$DEFCONFIG"
 
+          echo "===> Memaksa opsi EAS, Schedutil, Anxiety & BBR langsung di out/.config via scripts/config..."
+          ./scripts/config --file out/.config \
+            --enable CPU_FREQ_DEFAULT_GOV_SCHEDUTIL \
+            --disable CPU_FREQ_DEFAULT_GOV_PERFORMANCE \
+            --disable SCHED_WALT \
+            --disable SCHED_CORE_CTL \
+            --enable ENERGY_MODEL \
+            --enable DEFAULT_ANXIETY \
+            --disable DEFAULT_CFQ \
+            --enable DEFAULT_BBR \
+            --disable DEFAULT_WESTWOOD
+
           # Resolve semua NEW symbols non-interaktif sebelum build,
           # agar syncconfig tidak Restart config dan mereset opsi kita
           echo "===> Menyelesaikan NEW symbols non-interaktif (yes olddefconfig)..."
           yes "" | make -j$(nproc --all) ARCH=arm64 O=out olddefconfig
 
           echo "===> Verifikasi hasil konfigurasi kritis:"
-          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_ANDROID_PARANOID_NETWORK|CONFIG_KSU_MANUAL_HOOK|CONFIG_KSU_SUSFS|CONFIG_IOSCHED_ANXIETY" out/.config
+          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_WALT|CONFIG_IOSCHED_ANXIETY|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG" out/.config
 
           echo "===> Mengompilasi Kernel..."
           make -j$(nproc --all) ARCH=arm64 O=out \

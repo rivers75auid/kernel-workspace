@@ -141,6 +141,11 @@ jobs:
 
           if [ "$OPT_POTATO" = "true" ]; then
             echo "===> Enabling Potato Tuning Suite (WALT/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
+            # Strip competing Kconfig choice defaults so potato.config wins cleanly
+            sed -i '/CONFIG_CPU_FREQ_DEFAULT_GOV/d' "$DEFCONFIG_PATH"
+            sed -i '/CONFIG_DEFAULT_IOSCHED/d' "$DEFCONFIG_PATH"
+            sed -i '/CONFIG_DEFAULT_CFQ/d' "$DEFCONFIG_PATH"
+            sed -i '/CONFIG_DEFAULT_WESTWOOD/d' "$DEFCONFIG_PATH"
             cat "$GITHUB_WORKSPACE/configs/potato.config" >> "$DEFCONFIG_PATH"
           fi
 

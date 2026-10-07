@@ -55,26 +55,25 @@ def patch_nt36xxx():
                 c_content = c_content.replace(target_key, repl_key, 1)
                 print(f"[+] Mapped GESTURE_DOUBLE_CLICK to KEY_POWER in {c_file}")
 
-            # Define /sys/touchpanel/double_tap ops
-            target_ops = "#if WAKEUP_GESTURE\nint lct_nvt_tp_gesture_callback(bool flag)"
+            # Define /sys/touchpanel/double_tap ops right after forward declaration at line 107
+            target_ops = "static int lct_nvt_tp_gesture_callback(bool flag);"
             repl_ops = (
-                "#if WAKEUP_GESTURE\n"
+                "static int lct_nvt_tp_gesture_callback(bool flag);\n\n"
                 "static ssize_t nvt_double_tap_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {\n"
-                "\treturn sprintf(buf, \"%d\\n\", ts ? ts->is_gesture_mode : 0);\n"
+                '\treturn sprintf(buf, "%d\\n", ts ? ts->is_gesture_mode : 0);\n'
                 "}\n"
                 "static ssize_t nvt_double_tap_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {\n"
                 "\tunsigned int input = 0;\n"
-                "\tif (sscanf(buf, \"%u\", &input) == 1)\n"
+                '\tif (sscanf(buf, "%u", &input) == 1)\n'
                 "\t\tlct_nvt_tp_gesture_callback(input > 0);\n"
                 "\treturn count;\n"
                 "}\n"
                 "static struct tp_common_ops nvt_double_tap_ops = {\n"
                 "\t.show = nvt_double_tap_show,\n"
                 "\t.store = nvt_double_tap_store,\n"
-                "};\n\n"
-                "int lct_nvt_tp_gesture_callback(bool flag)"
+                "};"
             )
-            if target_ops in c_content:
+            if target_ops in c_content and "nvt_double_tap_ops" not in c_content:
                 c_content = c_content.replace(target_ops, repl_ops, 1)
                 print(f"[+] Created nvt_double_tap_ops in {c_file}")
 

@@ -8,5 +8,6 @@ __pycache__/
 out/
 build/
 docs/
+DEVELOPMENT_LOG.md
 .vscode/
 .idea/

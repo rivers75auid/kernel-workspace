@@ -185,25 +185,28 @@ def patch_focaltech():
                 content = content.replace("gesture = KEY_GESTURE_U;", "gesture = KEY_POWER;", 1)
                 print(f"[+] Replaced KEY_GESTURE_U with KEY_POWER in {gest_c}")
 
-            # Define FocalTech /sys/touchpanel/double_tap ops
+            # Define FocalTech /sys/touchpanel/double_tap ops BEFORE fts_gesture_init
             if "fts_double_tap_ops" not in content:
+                target_init = "int fts_gesture_init(struct fts_ts_data *ts_data)"
                 ops_code = (
-                    "\nstatic ssize_t fts_double_tap_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {\n"
-                    "\treturn sprintf(buf, \"%d\\n\", fts_gesture_data.mode);\n"
+                    "static ssize_t fts_double_tap_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {\n"
+                    '\treturn sprintf(buf, "%d\\n", fts_data ? fts_data->gesture_mode : 0);\n'
                     "}\n"
                     "static ssize_t fts_double_tap_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {\n"
                     "\tunsigned int input = 0;\n"
-                    "\tif (sscanf(buf, \"%u\", &input) == 1)\n"
-                    "\t\tfts_gesture_data.mode = (input > 0) ? 1 : 0;\n"
+                    '\tif (sscanf(buf, "%u", &input) == 1)\n'
+                    "\t\tlct_fts_tp_gesture_callback(input > 0);\n"
                     "\treturn count;\n"
                     "}\n"
                     "static struct tp_common_ops fts_double_tap_ops = {\n"
                     "\t.show = fts_double_tap_show,\n"
                     "\t.store = fts_double_tap_store,\n"
-                    "};\n"
+                    "};\n\n"
+                    "int fts_gesture_init(struct fts_ts_data *ts_data)"
                 )
-                content = content + ops_code
-                print(f"[+] Appended fts_double_tap_ops in {gest_c}")
+                if target_init in content:
+                    content = content.replace(target_init, ops_code, 1)
+                    print(f"[+] Defined fts_double_tap_ops before fts_gesture_init in {gest_c}")
 
             # Hook in fts_gesture_init
             target_sysfs = "fts_create_gesture_sysfs(ts_data->dev);"

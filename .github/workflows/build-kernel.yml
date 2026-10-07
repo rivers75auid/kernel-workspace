@@ -1,10 +1,10 @@
-name: Build Redmi 10C Kernel (ReSukiSU + SUSFS v2.3.0 + Potato Suite)
+name: Android Kernel Build Engine (Custom Linux 4.19 Pipeline)
 
 on:
   workflow_dispatch:
     inputs:
       KERNEL_NAME:
-        description: 'Custom Kernel Name (Tampil di Settings > About Phone)'
+        description: 'Custom Kernel Name'
         required: true
         default: 'Kairos'
       KERNEL_REPO:

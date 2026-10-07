@@ -1,102 +1,69 @@
-# 🚀 Redmi 10C (fog/wind/rain) Kernel Builder: Kairos Godmode Potato Suite
+# Android Kernel CI: Automated Custom Linux 4.19 Pipeline
 
-Repository ini berisi workflow **GitHub Actions** otomatis tingkat lanjut untuk mengompilasi Linux Kernel 4.19 pada **Xiaomi Redmi 10C (`fog`, `wind`, `rain` / Snapdragon 680)** dengan konfigurasi **Godmode Potato Suite**.
-
----
-
-## 🎯 Keputusan Tegas Sepuh: Pemilihan Base & Implementasi Fitur
-
-Sebagai engineer kernel senior, keputusan harus **tegas, berbasis data silikon, dan tanpa kompromi**. 
-
-* **Prosesor Target:** Qualcomm Snapdragon 680 4G (SM6225)
-  * Arsitektur: 4x Cortex-A73 (Kryo 265 Gold @ 2.4 GHz) + 4x Cortex-A53 (Kryo 265 Silver @ 1.9 GHz - In-Order).
-* **Kapasitas RAM:** 4GB LPDDR4X (Sangat sempit untuk Android 16).
-* **Storage Bus:** UFS 2.2 (Universal Flash Storage 2.2 - Dual-Lane Full-Duplex, Write Booster, SCSI Queuing ~800–1000 MB/s).
+An automated CI/CD pipeline built on **GitHub Actions** for compiling and packaging optimized custom Linux 4.19 kernels for Android devices.
 
 ---
 
-### 1. Base Kernel Pilihan: `alternoegraha/kernel_xiaomi_sm6225` (Branch `fog`)
+## ⚡ Overview & Features
 
-**Mengapa wajib ini?**
-1. **Zero-Bug Hardware Guarantee:** `@alternoegraha` adalah pembuat *device tree* resmi Redmi 10C. Hanya di repositori ini seluruh driver hardware (IC Touchscreen FocalTech/Novatek panel IPS LCD 6.71", kamera 50MP Samsung S5KJN1, sensor proximity, dan audio codec) dijamin 100% stabil tanpa risiko bug hardware.
-2. **Qualcomm WALT (Window-Assisted Load Tracking):** Di Kryo 265, CFS scheduler generic lambat mengenali beban. WALT milik Qualcomm mengukur beban dalam window 20ms dan langsung melempar tugas UI ke 4 Core Big A73 seketika.
-3. **MGLRU & ZRAM DEDUP Asli:** Pohon ini sudah memiliki backport Multi-Gen LRU dan ZRAM Deduplication di defconfig resminya.
+This pipeline provides a reproducible, hermetic build environment using LLVM Clang to produce flashable AnyKernel3 zip packages.
 
----
+### 1. Performance Tuning Suite
+- **CPU Scheduling (WALT & Schedtune Engine):** Tuned energy-aware scheduler prioritizing interactive tasks (`top-app`) with dynamic frequency scaling driven by `schedutil`.
+- **Storage I/O Optimization:** Flash-optimized `anxiety` I/O scheduler prioritizing read operations over background write bursts, with `bfq` group scheduling fallback.
+- **Network Latency & QoS:** `bbr` congestion control paired with `fq_codel` queuing disciplines to mitigate bufferbloat.
+- **Hardware Charging Subsystem:** Integrated driver enhancements for fast charging negotiation (HVDCP QC 3.0 protocol support).
 
-### 2. Fitur Terbaik yang Diambil & Diimplementasikan
+### 2. Modern Memory Management
+- **Multi-Gen LRU (MGLRU):** Advanced generation-based page reclamation minimizing cold-page churn under memory pressure.
+- **ZRAM Deduplication:** Content-addressable memory hashing to compress identical swap pages, utilizing `zstd` compression.
+- **Kernel Samepage Merging (KSM):** Automatic deduplication of identical memory pages across userland runtime processes.
+- **Debloated Tracing Overhead:** Stripped unnecessary debugging symbols (`CONFIG_SLUB_DEBUG=n`, minimized slab footprint) to maximize available physical RAM.
 
-Dari repositori lain (`rystX` dan `iDead-Project`), kita mengambil elemen terbaik yang **benar-benar esensial** tanpa memasukkan kode eksperimental yang rentan *kernel panic*:
-
-1. **Anxiety I/O Scheduler (Raja Flash Storage):**
-   * Diambil dari implementasi modder flash storage. Jauh lebih ringan dibanding BFQ untuk Core A53, memprioritaskan antrian baca (*read priority*) di atas tulis (*write*). Menghilangkan lag saat ada background download.
-2. **ZRAM DEDUP + ZSTD 4GB Dinamis:**
-   * Hashing blok swap memori agar halaman identik tidak memakan ruang dobel di swap. Kapasitas memori virtual efektif melonjak setara **~11 GB**.
-3. **KSM (Kernel Samepage Merging):**
-   * Menggabungkan duplikasi halaman RAM dari runtime ART Android 16 (menghemat 300MB–600MB RAM fisik murni).
-4. **Schedtune & Core-Control Isolation:**
-   * Core Big A73 diprioritaskan untuk `top-app` dengan boost 15%, sedangkan task background dikarantina ketat di Core Little A53 (CPU 0–3).
-5. **Zero-Debloat:**
-   * Mematikan `CONFIG_SCHEDSTATS`, `CONFIG_SLUB_DEBUG`, dan `CONFIG_FTRACE` untuk membebaskan ~200MB slab RAM yang tidak bisa di-reclaim.
-6. **SUSFS v2.3.0 & KernelSU-Next:**
-   * Sinkronisasi header otomatis untuk bypass Play Integrity & deteksi root perbankan.
+### 3. Root & Stealth Framework
+- **KernelSU / ReSukiSU Integration:** Inline manual VFS hooks (`execveat`, `faccessat`, `stat`, `sys_read`, `sys_reboot`, `setresuid`) for minimal kernel footprint.
+- **SuSFS Subsystem:** Supercall handlers and VFS isolation hooks to protect namespace integrity and prevent userspace mount enumeration.
 
 ---
 
-## 📌 Cara Upload Manual ke GitHub (Tanpa Terminal)
+## 🛠️ GitHub Actions Workflow Usage
 
-1. Buat repository baru di [github.com/new](https://github.com/new) (pilih **Public**).
-2. Di halaman repo baru, klik link **"uploading an existing file"** (atau menu **Add file** > **Upload files**).
-3. Buka File Explorer di Windows, masuk ke folder:
-   `c:\Users\Administrator\Documents\kernel`
-4. **Drag & drop** folder `.github`, file [`README.md`](file:///c:/Users/Administrator/Documents/kernel/README.md), dan [`.gitignore`](file:///c:/Users/Administrator/Documents/kernel/.gitignore) ke browser GitHub.
-5. Klik **Commit changes**.
+Builds are triggered manually using the **workflow_dispatch** trigger in GitHub Actions.
 
----
-
-## ⚙️ Cara Menjalankan Build di GitHub Actions
-
-1. Buka repo GitHub kamu > Masuk ke tab **Actions**.
-2. Pilih workflow **"Build Redmi 10C Kernel (KernelSU-Next + SUSFS v2.3.0 + Godmode Potato Suite)"**.
-3. Klik tombol **Run workflow**.
-4. Parameter default sudah otomatis disetel ke pohon resmi maintainer fog:
-   - **Custom Kernel Name**: `Kairos` (bisa kamu ubah sesuka hati)
-   - **Kernel Source Repository**: `alternoegraha/kernel_xiaomi_sm6225`
-   - **Kernel Source Branch**: `fog`
-   - **Defconfig**: `vendor/fog-perf_defconfig`
-   - **Integrate KernelSU-Next**: `true`
-   - **Integrate SUSFS**: `true`
-   - **Enable Godmode Potato**: `true`
-5. Tunggu proses kompilasi selesai (~12–18 menit), lalu download file `.zip` di bagian **Artifacts**:
-   `Kairos-SUSFS-GodmodePotato-fog-xxxx.zip`
+1. Navigate to the **Actions** tab in the repository.
+2. Select **Android Kernel Build Engine**.
+3. Click **Run workflow** and configure the input parameters if needed:
+   - **KERNEL_NAME**: Suffix identifier displayed in kernel version strings (default: `Kairos`).
+   - **KERNEL_REPO**: Target kernel source tree repository path.
+   - **KERNEL_BRANCH**: Target git branch.
+   - **DEFCONFIG**: Target defconfig file relative to `arch/arm64/configs/`.
+   - **ENABLE_RESUKISU**: Toggle root subsystem hooks (`true` / `false`).
+   - **ENABLE_POTATO_SUITE**: Toggle performance tuning and memory enhancements (`true` / `false`).
+4. Once compilation completes, download the flashable AnyKernel3 archive from the **Artifacts** section.
 
 ---
 
-## 📲 Cara Flash & Verifikasi di HP (Termux)
+## 📦 Installation & Verification
 
-1. Masuk ke TWRP / OrangeFox recovery.
-2. **Backup partisi `Boot` dan `DTBO`** terlebih dahulu.
-3. Flash file AnyKernel3 zip hasil build > **Reboot System**.
-4. Pasang APK [KernelSU-Next Manager](https://github.com/KernelSU-Next/KernelSU-Next/releases) dan [Modul SUSFS sidex15 v2.3.0](https://github.com/sidex15/susfs4ksu-module/releases).
-5. Buka **Termux** dan jalankan perintah cek:
+1. Boot into a custom recovery environment (TWRP / OrangeFox).
+2. Create a backup of existing `boot` and `dtbo` partitions.
+3. Flash the compiled AnyKernel3 zip package.
+4. Reboot the system and verify the kernel status via adb shell:
 
 ```bash
-# 1. Cek versi SUSFS aktif (harus v2.3.0)
-su -c ksu_susfs -v
+# Verify active kernel version and governor
+uname -a
+cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 
-# 2. Cek status Schedtune top-app boost (harus 15)
-su -c cat /dev/stune/top-app/schedtune.boost
+# Verify Multi-Gen LRU status
+cat /sys/kernel/mm/lru_gen/enabled
 
-# 3. Cek I/O Scheduler aktif (harus [anxiety])
-su -c "cat /sys/block/sda/queue/scheduler 2>/dev/null || cat /sys/block/mmcblk0/queue/scheduler"
-
-# 4. Cek respon cepat Schedutil (harus 500 us)
-su -c cat /sys/devices/system/cpu/cpufreq/policy0/schedutil/up_rate_limit_us
-
-# 5. Cek MGLRU (harus 7) & KSM (harus 1)
-su -c cat /sys/kernel/mm/lru_gen/enabled
-su -c cat /sys/kernel/mm/ksm/run
-
-# 6. Cek kapasitas ZRAM (harus ~4096 MB ZSTD)
-su -c free -m
+# Verify active I/O scheduler
+cat /sys/block/sda/queue/scheduler
 ```
+
+---
+
+## 📄 License
+
+The kernel source tree and related components are distributed under the terms of the GNU General Public License (GPL) version 2.

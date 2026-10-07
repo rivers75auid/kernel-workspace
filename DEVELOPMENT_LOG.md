@@ -279,4 +279,25 @@
   - `anti-slop` (+ code, copywriting, human, layoutmobile, ui)
   - `superpowers` (debugging sistematis, TDD, verifikasi sebelum selesai, dll.)
 
+---
+
+### [2026-10-07] Perbaikan Schedutil Native, Patch Charger 18W & Optimasi Deep Sleep
+* **Aktivitas & Root Cause Fixes**:
+  1. **Fix CPU Governor Stuck di Performance**:
+     - Kernel sebelumnya boot dengan governor `performance` karena base defconfig tidak mendeklarasikan default governor. Kconfig choice fallback ke `CONFIG_CPU_FREQ_DEFAULT_GOV_PERFORMANCE=y`.
+     - Mengunci `CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y`, `CONFIG_DEFAULT_ANXIETY=y`, `CONFIG_DEFAULT_BBR=y` di `configs/potato.config`.
+     - Menambahkan pembersihan conflicting choice lines via `sed -i` di `.github/workflows/build-kernel.yml`.
+  2. **Patch Driver Charger SMB1351 (18W HVDCP QC 3.0)**:
+     - Ditemukan notifikasi `POWER_SUPPLY_PROP_TYPE` untuk `HVDCP_3` di-comment out pada `drivers/power/supply/qcom/smb1351-charger.c:2192`, membatasi arus ke DCP standar (~13W).
+     - Menambahkan `scripts/patch-charger.py` untuk mengaktifkan kembali notifikasi HVDCP_3 saat build.
+  3. **Optimasi Deep Sleep Saat Wi-Fi / Bluetooth Scanning Aktif**:
+     - Menganalisis wakelock `wlan_wow_wl` dan scanning framework.
+     - Mengaktifkan `wifi_scan_throttle_enabled = 1` serta membatasi radio BLE duty cycle ke mode hemat daya.
+  4. **Penyempurnaan RAM 4GB & MGLRU**:
+     - Memastikan status boolean `0x0001` MGLRU Linux 4.19.
+     - Mengoptimalkan `swappiness = 100`, `vfs_cache_pressure = 100`, dan `page-cluster = 0` untuk memaksimalkan efisiensi kompresi ZRAM zstd.
+  5. **Anonimisasi Dokumentasi**:
+     - Mengubah `README.md` dan alur kerja CI ke bahasa Inggris generik tanpa menyebut codename perangkat untuk keperluan repositori pribadi.
+
+
 

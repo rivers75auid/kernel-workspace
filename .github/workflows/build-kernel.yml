@@ -218,13 +218,9 @@ jobs:
           KNAME="${{ github.event.inputs.KERNEL_NAME }}"
           [ -z "$KNAME" ] && KNAME="Kairos"
 
-          # Terapkan anykernel.sh terkonfigurasi khusus Redmi 10C (BLOCK=boot & slot auto)
+          # Terapkan anykernel.sh terkonfigurasi khusus (BLOCK=boot & slot auto)
           cp "$GITHUB_WORKSPACE/configs/anykernel.sh" .
           sed -i "s/Kairos/${KNAME}/g" anykernel.sh
-
-          # Copy Potato optimizer runtime script
-          cp "$GITHUB_WORKSPACE/scripts/99-potato-fog.sh" .
-          chmod 755 99-potato-fog.sh
 
           OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
 

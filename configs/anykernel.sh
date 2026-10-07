@@ -37,14 +37,6 @@ PATCH_VBMETA_FLAG=auto;
 # import functions/variables and setup patching - see for reference (DO NOT REMOVE)
 . tools/ak3-core.sh;
 
-# Injeksi script runtime Potato Suite untuk Android 16
-if [ -d "/data/adb/service.d" ]; then
-  ui_print " "
-  ui_print "-> Injecting Potato Runtime Optimizer..."
-  cp -f "$home/99-potato-fog.sh" /data/adb/service.d/99-potato-fog.sh
-  chmod 755 /data/adb/service.d/99-potato-fog.sh
-fi
-
 # boot install
 dump_boot;
 

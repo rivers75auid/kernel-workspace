@@ -23,11 +23,18 @@ def patch_nt36xxx():
                     f.write(content)
                 print(f"[+] Enabled NVT_TOUCH_ESD_PROTECT in {h_file}")
 
-        # 2. Patch C source: ghost touch filter, KEY_POWER for D2TW, and default gesture mode
+        # 2. Patch C source: ghost touch filter, KEY_POWER for D2TW, /sys/touchpanel/double_tap hook
         c_file = os.path.join(d, "nt36xxx.c")
         if os.path.exists(c_file):
             with open(c_file, "r", encoding="utf-8", errors="ignore") as f:
                 c_content = f.read()
+
+            # Include tp_common.h
+            if "#include <linux/input/tp_common.h>" not in c_content:
+                target_h = "#include <linux/pm_runtime.h>"
+                repl_h = "#include <linux/pm_runtime.h>\n#include <linux/input/tp_common.h>"
+                c_content = c_content.replace(target_h, repl_h, 1)
+                print(f"[+] Included linux/input/tp_common.h in {c_file}")
 
             # Filter electrical noise & bezel stray capacitance
             target_filter = "input_w = (uint32_t)(point_data[position + 4]);"
@@ -48,9 +55,45 @@ def patch_nt36xxx():
                 c_content = c_content.replace(target_key, repl_key, 1)
                 print(f"[+] Mapped GESTURE_DOUBLE_CLICK to KEY_POWER in {c_file}")
 
-            # Initialize ts->is_gesture_mode = true in probe so D2TW is armed immediately
+            # Define /sys/touchpanel/double_tap ops
+            target_ops = "#if WAKEUP_GESTURE\nint lct_nvt_tp_gesture_callback(bool flag)"
+            repl_ops = (
+                "#if WAKEUP_GESTURE\n"
+                "static ssize_t nvt_double_tap_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {\n"
+                "\treturn sprintf(buf, \"%d\\n\", ts ? ts->is_gesture_mode : 0);\n"
+                "}\n"
+                "static ssize_t nvt_double_tap_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {\n"
+                "\tunsigned int input = 0;\n"
+                "\tif (sscanf(buf, \"%u\", &input) == 1)\n"
+                "\t\tlct_nvt_tp_gesture_callback(input > 0);\n"
+                "\treturn count;\n"
+                "}\n"
+                "static struct tp_common_ops nvt_double_tap_ops = {\n"
+                "\t.show = nvt_double_tap_show,\n"
+                "\t.store = nvt_double_tap_store,\n"
+                "};\n\n"
+                "int lct_nvt_tp_gesture_callback(bool flag)"
+            )
+            if target_ops in c_content:
+                c_content = c_content.replace(target_ops, repl_ops, 1)
+                print(f"[+] Created nvt_double_tap_ops in {c_file}")
+
+            # Register /sys/touchpanel/double_tap in probe
+            target_call = "ret = init_lct_tp_gesture(lct_nvt_tp_gesture_callback);"
+            repl_call = (
+                "ret = init_lct_tp_gesture(lct_nvt_tp_gesture_callback);\n"
+                "\ttp_common_set_double_tap_ops(&nvt_double_tap_ops);"
+            )
+            if target_call in c_content and "tp_common_set_double_tap_ops" not in c_content:
+                c_content = c_content.replace(target_call, repl_call, 1)
+                print(f"[+] Registered tp_common_set_double_tap_ops in probe in {c_file}")
+
+            # Initialize ts->is_gesture_mode = true in probe
             target_init = 'ts->stylus_resol_double = of_property_read_bool(np, "novatek,stylus-resol-double");'
-            repl_init = 'ts->stylus_resol_double = of_property_read_bool(np, "novatek,stylus-resol-double");\n\tts->is_gesture_mode = true; /* Enable D2TW gesture mode by default */'
+            repl_init = (
+                'ts->stylus_resol_double = of_property_read_bool(np, "novatek,stylus-resol-double");\n'
+                '\tts->is_gesture_mode = true; /* Enable D2TW gesture mode by default */'
+            )
             if target_init in c_content and "is_gesture_mode = true" not in c_content:
                 c_content = c_content.replace(target_init, repl_init, 1)
                 print(f"[+] Enabled ts->is_gesture_mode by default in {c_file}")
@@ -128,19 +171,49 @@ def patch_focaltech():
             with open(gest_c, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
+            # Include tp_common.h
+            if "#include <linux/input/tp_common.h>" not in content:
+                content = "#include <linux/input/tp_common.h>\n" + content
+                print(f"[+] Included linux/input/tp_common.h in {gest_c}")
+
             target_key = "case GESTURE_DOUBLECLICK:\n        gesture = KEY_GESTURE_U;"
             repl_key = "case GESTURE_DOUBLECLICK:\n        gesture = KEY_POWER; /* Wake screen via KEY_POWER */"
-
             if target_key in content:
                 content = content.replace(target_key, repl_key, 1)
-                with open(gest_c, "w", encoding="utf-8", newline="\n") as f:
-                    f.write(content)
                 print(f"[+] Fixed FocalTech GESTURE_DOUBLECLICK -> KEY_POWER in {gest_c}")
             elif "KEY_GESTURE_U" in content:
                 content = content.replace("gesture = KEY_GESTURE_U;", "gesture = KEY_POWER;", 1)
-                with open(gest_c, "w", encoding="utf-8", newline="\n") as f:
-                    f.write(content)
                 print(f"[+] Replaced KEY_GESTURE_U with KEY_POWER in {gest_c}")
+
+            # Define FocalTech /sys/touchpanel/double_tap ops
+            if "fts_double_tap_ops" not in content:
+                ops_code = (
+                    "\nstatic ssize_t fts_double_tap_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {\n"
+                    "\treturn sprintf(buf, \"%d\\n\", fts_gesture_data.mode);\n"
+                    "}\n"
+                    "static ssize_t fts_double_tap_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {\n"
+                    "\tunsigned int input = 0;\n"
+                    "\tif (sscanf(buf, \"%u\", &input) == 1)\n"
+                    "\t\tfts_gesture_data.mode = (input > 0) ? 1 : 0;\n"
+                    "\treturn count;\n"
+                    "}\n"
+                    "static struct tp_common_ops fts_double_tap_ops = {\n"
+                    "\t.show = fts_double_tap_show,\n"
+                    "\t.store = fts_double_tap_store,\n"
+                    "};\n"
+                )
+                content = content + ops_code
+                print(f"[+] Appended fts_double_tap_ops in {gest_c}")
+
+            # Hook in fts_gesture_init
+            target_sysfs = "fts_create_gesture_sysfs(ts_data->dev);"
+            repl_sysfs = "fts_create_gesture_sysfs(ts_data->dev);\n    tp_common_set_double_tap_ops(&fts_double_tap_ops);"
+            if target_sysfs in content and "tp_common_set_double_tap_ops" not in content:
+                content = content.replace(target_sysfs, repl_sysfs, 1)
+                print(f"[+] Registered FocalTech tp_common_set_double_tap_ops in {gest_c}")
+
+            with open(gest_c, "w", encoding="utf-8", newline="\n") as f:
+                f.write(content)
 
 if __name__ == "__main__":
     patch_nt36xxx()

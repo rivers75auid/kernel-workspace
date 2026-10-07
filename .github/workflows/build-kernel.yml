@@ -143,8 +143,10 @@ jobs:
           python3 "$GITHUB_WORKSPACE/scripts/patch-charger.py"
 
           if [ "$OPT_POTATO" = "true" ]; then
-            echo "===> Enabling Potato Tuning Suite (WALT/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
-            # Strip competing Kconfig choice defaults so potato.config wins cleanly
+            echo "===> Enabling Potato Tuning Suite (EAS/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
+            # Strip competing Kconfig choice defaults & legacy WALT so potato.config wins cleanly
+            sed -i '/CONFIG_SCHED_WALT/d' "$DEFCONFIG_PATH"
+            sed -i '/CONFIG_SCHED_CORE_CTL/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_CPU_FREQ_DEFAULT_GOV/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_DEFAULT_IOSCHED/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_DEFAULT_CFQ/d' "$DEFCONFIG_PATH"

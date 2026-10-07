@@ -11,13 +11,22 @@ done
 sleep 10
 
 # ==============================================================
-# 1. CPU Scheduling: FAS (Frame Aware Scheduling) & Schedutil
+# 1. CPU Scheduling: EAS & Schedutil Tuning (Smooth & Responsive)
 # ==============================================================
+# Reset WALT boost and uninitialized core_ctl thresholds
+echo 0 > /proc/sys/kernel/sched_boost 2>/dev/null || true
+for cc in /sys/devices/system/cpu/cpu*/core_ctl; do
+  [ -d "$cc" ] || continue
+  echo 68 68 68 68 > "$cc/busy_up_thres" 2>/dev/null || true
+  echo 40 40 40 40 > "$cc/busy_down_thres" 2>/dev/null || true
+done
+
 for gov in /sys/devices/system/cpu/cpufreq/policy*/schedutil; do
   [ -d "$gov" ] || continue
-  echo 500 > "$gov/up_rate_limit_us" 2>/dev/null || true
-  echo 20000 > "$gov/down_rate_limit_us" 2>/dev/null || true
-  echo 1000 > "$gov/rate_limit_us" 2>/dev/null || true
+  echo 1000 > "$gov/up_rate_limit_us" 2>/dev/null || true
+  echo 4000 > "$gov/down_rate_limit_us" 2>/dev/null || true
+  echo 0 > "$gov/hispeed_freq" 2>/dev/null || true
+  echo 0 > "$gov/rtg_boost_freq" 2>/dev/null || true
 done
 
 # Schedtune & WALT Boost untuk Kryo 265 Gold (4x A73)

@@ -139,6 +139,9 @@ jobs:
           echo "===> Enabling Novatek touchscreen ESD recovery & edge ghost-touch fix..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-touch.py"
 
+          echo "===> Enabling SMB1351 HVDCP_3 (Quick Charge 3.0 18W) notification fix..."
+          python3 "$GITHUB_WORKSPACE/scripts/patch-charger.py"
+
           if [ "$OPT_POTATO" = "true" ]; then
             echo "===> Enabling Potato Tuning Suite (WALT/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
             # Strip competing Kconfig choice defaults so potato.config wins cleanly

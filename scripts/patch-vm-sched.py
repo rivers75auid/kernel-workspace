@@ -7,12 +7,6 @@ def patch_vm_sched():
 
     # 1. Patch mm/page_alloc.c:
     # Paksa setup_per_zone_wmarks() agar 'low' dan 'high' watermark SELALU KECIL!
-    # Di kernel 4.19:
-    #   zone->_watermark[WMARK_MIN] = min;
-    #   zone->_watermark[WMARK_LOW]  = min + tmp;
-    #   zone->_watermark[WMARK_HIGH] = min + tmp * 2;
-    # Kita paksa tmp = 1 (atau minimum absolut), sehingga watermark 'low' di /proc/zoneinfo
-    # berada di angka ~500 halaman, dan TIDAK PERNAH BISA DILANGGAR OLEH FREE RAM!
     pa_file = os.path.join(kernel_root, "mm/page_alloc.c")
     if os.path.exists(pa_file):
         with open(pa_file, "r", encoding="utf-8", errors="ignore") as f:
@@ -29,7 +23,6 @@ def patch_vm_sched():
         content = content.replace("int watermark_boost_factor = 15000;", "int watermark_boost_factor = 0;")
 
         # Di setup_per_zone_wmarks: paksa zone low watermark bernilai sangat kecil
-        # Cari: zone->_watermark[WMARK_LOW]  = min + tmp;
         target_wmark_low = "zone->_watermark[WMARK_LOW]  = min + tmp;"
         repl_wmark_low = "zone->_watermark[WMARK_LOW]  = min + 64; /* Kairos low watermark lock */"
         if target_wmark_low in content:
@@ -59,7 +52,8 @@ def patch_vm_sched():
             f.write(content)
         print("[+] mm/swap.c patched: vm_swappiness=160, page_cluster=0")
 
-    # 3. Patch kernel/sched/cpufreq_schedutil.c: Kunci down_rate_limit_us default = 20ms
+    # 3. Patch kernel/sched/cpufreq_schedutil.c:
+    # Native kernel lock: Tolak input userspace jika ingin menurunkan down_rate_limit_us di bawah 20ms (20000us)
     su_file = os.path.join(kernel_root, "kernel/sched/cpufreq_schedutil.c")
     if not os.path.exists(su_file):
         su_file = os.path.join(kernel_root, "drivers/cpufreq/cpufreq_schedutil.c")
@@ -77,9 +71,22 @@ def patch_vm_sched():
             "unsigned int default_down_rate_limit_ns = 2000 * 1000;",
             "unsigned int default_down_rate_limit_ns = 20000 * 1000;"
         )
+
+        # Di fungsi store_down_rate_limit_us: paksa nilai minimum di level C kernel = 20000 (20ms)
+        # Jadi sekalipun vendor init.qcom.power.rc mencoba menulis '1000', kernel C otomatis clamp ke 20000!
+        target_store = "sg_policy->down_rate_limit_ns = rate_limit_us * NSEC_PER_USEC;"
+        repl_store = (
+            "if (rate_limit_us < 20000)\n"
+            "\t\trate_limit_us = 20000; /* Native Kairos 60Hz clamp */\n"
+            "\tsg_policy->down_rate_limit_ns = rate_limit_us * NSEC_PER_USEC;"
+        )
+        if target_store in content and "Native Kairos 60Hz clamp" not in content:
+            content = content.replace(target_store, repl_store, 1)
+            print("[+] Clamped store_down_rate_limit_us to minimum 20000us natively in C!")
+
         with open(su_file, "w", encoding="utf-8", newline="\n") as f:
             f.write(content)
-        print(f"[+] Schedutil patched in {su_file}: default down_rate_limit smoothed to 20ms")
+        print(f"[+] Schedutil patched in {su_file}: native 20ms floor locked!")
 
     # 4. Patch mm/compaction.c: Kunci compact_unevictable_allowed = 1
     cp_file = os.path.join(kernel_root, "mm/compaction.c")
@@ -93,9 +100,6 @@ def patch_vm_sched():
         print("[+] mm/compaction.c patched: compact_unevictable_allowed=1")
 
     # 5. Patch fs/proc/meminfo.c: Sembunyikan 'Swap is Low' dari LMKD
-    # LMKD Android mengecek: if (SwapFree < SwapTotal * 10 / 100) -> KILL!
-    # Dengan memastikan SwapFree selalu dilaporkan minimal 50% SwapTotal di /proc/meminfo,
-    # LMKD TIDAK AKAN PERNAH MEMBUNUH DENGAN ALASAN 'swap is low'!
     mi_file = os.path.join(kernel_root, "fs/proc/meminfo.c")
     if os.path.exists(mi_file):
         with open(mi_file, "r", encoding="utf-8", errors="ignore") as f:

@@ -257,6 +257,11 @@ jobs:
             cp "$OUT_DIR/dtb" .
           fi
 
+          # Bundle built-in Kairos RAM Management module directly into AnyKernel3 zip
+          echo "===> Bundling Built-in Kairos RAM Management into Kernel zip..."
+          mkdir -p kairos-module
+          cp -af "$GITHUB_WORKSPACE/modules/kairos-memory-suite"/* kairos-module/
+
           DATE=$(date +'%Y%m%d-%H%M')
           ZIP_NAME="${KNAME}-SUSFS-Potato-fog-${DATE}.zip"
           zip -r9 "$ZIP_NAME" * -x .git README.md *placeholder

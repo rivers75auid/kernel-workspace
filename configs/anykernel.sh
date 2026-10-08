@@ -42,4 +42,21 @@ dump_boot;
 
 # write new kernel image and dtb
 write_boot;
+
+# Install Built-in Kairos RAM Management module automatically if Magisk/KernelSU is present
+if [ -d "$AKHOME/kairos-module" ]; then
+  ui_print " ";
+  ui_print "- Installing Built-in Kairos RAM Management module...";
+  for mod_dir in /data/adb/modules /data/adb/ksu/modules /data/adb/ap/modules; do
+    if [ -d "$mod_dir" ]; then
+      target="$mod_dir/kairos_memory_suite";
+      mkdir -p "$target";
+      cp -af "$AKHOME/kairos-module"/* "$target/";
+      set_perm_recursive 0 0 755 644 "$target";
+      set_perm 0 0 755 "$target/service.sh";
+      ui_print "  Installed to $target";
+    fi;
+  done;
+fi;
+
 ## end boot install

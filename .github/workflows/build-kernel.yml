@@ -142,6 +142,9 @@ jobs:
           echo "===> Enabling SMB1351 HVDCP_3 (Quick Charge 3.0 18W) notification fix..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-charger.py"
 
+          echo "===> Baking Native In-Kernel VM, ZRAM & Schedutil Defaults (No Scripts / Rootless)..."
+          python3 "$GITHUB_WORKSPACE/scripts/patch-vm-sched.py"
+
           if [ "$OPT_POTATO" = "true" ]; then
             echo "===> Enabling Potato Tuning Suite (EAS/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
             # Strip competing Kconfig choice defaults & legacy WALT so potato.config wins cleanly

@@ -6,15 +6,19 @@ def patch_vm_sched():
     print("[*] Memulai penanaman tuning langsung ke source C kernel...")
 
     # 1. Patch mm/page_alloc.c:
-    # Turunkan min_free_kbytes ke 4096 (4MB) & watermark_scale_factor ke 1
-    # Ini membuat low watermark di /proc/zoneinfo turun ke titik terendah mutlak
-    # Sehingga LMKD tidak akan pernah memicu "low watermark is breached"!
+    # Paksa setup_per_zone_wmarks() agar 'low' dan 'high' watermark SELALU KECIL!
+    # Di kernel 4.19:
+    #   zone->_watermark[WMARK_MIN] = min;
+    #   zone->_watermark[WMARK_LOW]  = min + tmp;
+    #   zone->_watermark[WMARK_HIGH] = min + tmp * 2;
+    # Kita paksa tmp = 1 (atau minimum absolut), sehingga watermark 'low' di /proc/zoneinfo
+    # berada di angka ~500 halaman, dan TIDAK PERNAH BISA DILANGGAR OLEH FREE RAM!
     pa_file = os.path.join(kernel_root, "mm/page_alloc.c")
     if os.path.exists(pa_file):
         with open(pa_file, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
 
-        # Kunci watermark_scale_factor = 1 (minimum murni)
+        # Netralkan watermark_scale_factor
         content = content.replace("int watermark_scale_factor = 1000;", "int watermark_scale_factor = 1;")
         content = content.replace("int watermark_scale_factor = 50;", "int watermark_scale_factor = 1;")
         content = content.replace("int watermark_scale_factor = 20;", "int watermark_scale_factor = 1;")
@@ -24,6 +28,14 @@ def patch_vm_sched():
         content = content.replace("int watermark_boost_factor __read_mostly = 15000;", "int watermark_boost_factor __read_mostly = 0;")
         content = content.replace("int watermark_boost_factor = 15000;", "int watermark_boost_factor = 0;")
 
+        # Di setup_per_zone_wmarks: paksa zone low watermark bernilai sangat kecil
+        # Cari: zone->_watermark[WMARK_LOW]  = min + tmp;
+        target_wmark_low = "zone->_watermark[WMARK_LOW]  = min + tmp;"
+        repl_wmark_low = "zone->_watermark[WMARK_LOW]  = min + 64; /* Kairos low watermark lock */"
+        if target_wmark_low in content:
+            content = content.replace(target_wmark_low, repl_wmark_low)
+            print("[+] Hardcoded zone->_watermark[WMARK_LOW] to min + 64!")
+
         # Kunci default min_free_kbytes = 4096 (4MB)
         if "min_free_kbytes = " in content:
             content = content.replace("min_free_kbytes = 1024 * 1024 / 4;", "min_free_kbytes = 4096;")
@@ -31,7 +43,7 @@ def patch_vm_sched():
 
         with open(pa_file, "w", encoding="utf-8", newline="\n") as f:
             f.write(content)
-        print("[+] mm/page_alloc.c patched: watermark_scale_factor=1, watermark_boost_factor=0, min_free_kbytes=4096")
+        print("[+] mm/page_alloc.c patched: Hardcoded low watermark!")
 
     # 2. Patch mm/swap.c & include/linux/swap.h: Kunci vm_swappiness = 160 & page_cluster = 0
     sw_file = os.path.join(kernel_root, "mm/swap.c")
@@ -88,7 +100,6 @@ def patch_vm_sched():
     if os.path.exists(mi_file):
         with open(mi_file, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
-        # Cari baris output SwapFree
         target_swapfree = 'si_swapinfo(&i);'
         patch_swapfree = (
             'si_swapinfo(&i);\n'

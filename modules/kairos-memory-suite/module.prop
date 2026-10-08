@@ -2,5 +2,5 @@ id=kairos_memory_suite
 name=Kairos RAM Management
 version=v2.0
 versionCode=200
-author=Kairos Dev
-description=Advanced Android memory management and app retention optimizer.
+author=Kairos
+description=Built-in memory management module for Kairos Kernel.

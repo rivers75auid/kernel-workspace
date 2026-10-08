@@ -313,7 +313,7 @@ jobs:
               echo "===> Uploading Kairos RAM Management Module to Telegram..."
               curl -s -F "chat_id=${TELEGRAM_CHAT_ID}" \
                 -F "document=@${MODULE_ZIP}" \
-                -F "caption=📦 Kairos RAM Management v2.0 (Magisk/KernelSU Module)" \
+                -F "caption=📦 Built-in Memory Management Module" \
                 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
             fi
           else

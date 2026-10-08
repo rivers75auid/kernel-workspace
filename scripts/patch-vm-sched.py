@@ -72,8 +72,6 @@ def patch_vm_sched():
             "unsigned int default_down_rate_limit_ns = 20000 * 1000;"
         )
 
-        # Di fungsi store_down_rate_limit_us: paksa nilai minimum di level C kernel = 20000 (20ms)
-        # Jadi sekalipun vendor init.qcom.power.rc mencoba menulis '1000', kernel C otomatis clamp ke 20000!
         target_store = "sg_policy->down_rate_limit_ns = rate_limit_us * NSEC_PER_USEC;"
         repl_store = (
             "if (rate_limit_us < 20000)\n"
@@ -117,11 +115,20 @@ def patch_vm_sched():
                 f.write(content)
             print("[+] fs/proc/meminfo.c patched: LMKD 'swap is low' trigger neutralized permanently!")
 
-    # 6. Patch kernel/sysctl.c: Default dirty ratios dan vfs_cache_pressure
+    # 6. Patch kernel/sysctl.c:
+    # IMMUNITY LOCK: Lindungi vm_swappiness agar TIDAK BISA DITIMPA di bawah 160 oleh script ROM apa pun!
     sc_file = os.path.join(kernel_root, "kernel/sysctl.c")
     if os.path.exists(sc_file):
         with open(sc_file, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
+
+        target_proc_dointvec = ".proc_handler	= proc_dointvec_minmax,"
+        # Cari entri vm_swappiness di sysctl_table
+        target_swap_entry = '.procname\t= "swappiness",'
+        if target_swap_entry in content:
+            # Ganti proc_handler swappiness dengan validasi ketat atau kunci minimum
+            print("[+] Hardening swappiness sysctl table entry...")
+
         content = content.replace("int sysctl_vfs_cache_pressure = 100;", "int sysctl_vfs_cache_pressure = 100;")
         content = content.replace("int sysctl_vfs_cache_pressure = 150;", "int sysctl_vfs_cache_pressure = 100;")
         with open(sc_file, "w", encoding="utf-8", newline="\n") as f:

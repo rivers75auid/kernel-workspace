@@ -1,0 +1,6 @@
+id=kairos_memory_suite
+name=Kairos RAM & Memory Management Suite
+version=v2.0
+versionCode=200
+author=Kairos Dev
+description=Suite resmi retensi background app ekstrim (Scene-aligned), proteksi LMKD, mitigasi Phantom Process Killer, dan frame-pacing 60Hz anti-stutter untuk Redmi 10C.

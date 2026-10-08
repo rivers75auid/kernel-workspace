@@ -265,6 +265,11 @@ jobs:
           mv "$ZIP_NAME" "$GITHUB_WORKSPACE/output/"
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
+          # Package Kairos RAM & Memory Management Suite Magisk/KSU module
+          echo "===> Packaging Kairos Memory Suite Module..."
+          cd "$GITHUB_WORKSPACE/modules/kairos-memory-suite"
+          zip -r9 "$GITHUB_WORKSPACE/output/Kairos-Memory-Suite-v2.0.zip" ./*
+
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -301,6 +306,15 @@ jobs:
                   -F "caption=🚀 Flashable Kernel ZIP (${VARIANT})" \
                   "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
               fi
+            fi
+
+            MODULE_ZIP="$GITHUB_WORKSPACE/output/Kairos-Memory-Suite-v2.0.zip"
+            if [ -f "$MODULE_ZIP" ]; then
+              echo "===> Uploading Kairos Memory Suite Module to Telegram..."
+              curl -s -F "chat_id=${TELEGRAM_CHAT_ID}" \
+                -F "document=@${MODULE_ZIP}" \
+                -F "caption=📦 Kairos RAM & Memory Management Suite v2.0 (Magisk/KernelSU Module)" \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
             fi
           else
             MSG="❌ *Kernel Build Failed!*%0A%0A*Device:* Redmi 10C (fog)%0A*Variant:* ${VARIANT}%0A*Commit:* \`${{ github.sha }}\`%0A*Run:* [View Action Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"

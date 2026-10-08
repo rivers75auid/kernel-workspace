@@ -1,0 +1,12 @@
+ro.sys.fw.bg_apps_limit=64
+ro.lmk.kill_heaviest_task=false
+ro.lmk.use_psi=true
+ro.lmk.use_minfree_levels=false
+ro.lmk.psi_partial_stall_ms=250
+ro.lmk.psi_complete_stall_ms=700
+ro.lmk.thrashing_limit=100
+ro.lmk.thrashing_limit_decay=10
+ro.lmk.swap_free_low_percentage=0
+ro.lmk.swap_is_low_kill_enable=0
+ro.lmk.swap_util_max=100
+ro.lmk.lowmem_min_oom_score=1001

@@ -81,7 +81,8 @@ if [ ! -f "$CONFIG" ]; then
   "heavy_swap_apps": [],
   "swappiness": 100,
   "zram_size": "4000M",
-  "bg_limit": 32
+  "bg_limit": 32,
+  "thermal_limit_c": 52
 }
 EOF
   chmod 644 "$CONFIG"
@@ -89,33 +90,50 @@ fi
 
 # Background supervisor loop
 (
-  auto_disabled=0
+  bypass_engaged=0
+  thermal_cut=0
+
   while true; do
     sleep 4
 
-    if [ -f "$CONFIG" ]; then
-      ac_status=$(cat /sys/class/power_supply/battery/status 2>/dev/null)
-      curr_pkg=$(dumpsys window 2>/dev/null | grep -m 1 "mFocusedApp" | grep -o "u0 [^/]*" | cut -d" " -f2)
+    [ -f "$CONFIG" ] || continue
 
-      # Check if current focused app is flagged in auto_bypass_games
-      is_game=0
-      if [ -n "$curr_pkg" ]; then
-        grep -q "\"$curr_pkg\"" "$CONFIG" 2>/dev/null && is_game=1
+    batt_temp=$(cat /sys/class/power_supply/battery/temp 2>/dev/null)
+    [ -z "$batt_temp" ] && batt_temp=0
+    curr_state=$(cat /sys/class/power_supply/battery/charging_enabled 2>/dev/null)
+    ac_status=$(cat /sys/class/power_supply/battery/status 2>/dev/null)
+
+    # 1. Thermal Guard (Bypass when temp >= 52°C, resume when <= 46°C)
+    if [ "$batt_temp" -ge 520 ]; then
+      thermal_cut=1
+    elif [ "$batt_temp" -le 460 ]; then
+      thermal_cut=0
+    fi
+
+    # 2. Game Mode & Manual Check
+    curr_pkg=$(dumpsys window 2>/dev/null | grep -m 1 "mFocusedApp" | grep -o "u0 [^/]*" | cut -d" " -f2)
+    is_game=0
+    if [ -n "$curr_pkg" ]; then
+      grep -q "\"$curr_pkg\"" "$CONFIG" 2>/dev/null && is_game=1
+    fi
+
+    manual_bypass=0
+    grep -q '"bypass_charging": true' "$CONFIG" 2>/dev/null && manual_bypass=1
+
+    # Determine desired charging state
+    should_bypass=0
+    if [ "$thermal_cut" -eq 1 ] || [ "$manual_bypass" -eq 1 ] || { [ "$is_game" -eq 1 ] && [ "$ac_status" != "Discharging" ]; }; then
+      should_bypass=1
+    fi
+
+    if [ "$should_bypass" -eq 1 ]; then
+      if [ "$curr_state" != "0" ]; then
+        echo 0 > /sys/class/power_supply/battery/charging_enabled 2>/dev/null
+        bypass_engaged=1
       fi
-
-      manual_bypass=0
-      grep -q '"bypass_charging": true' "$CONFIG" 2>/dev/null && manual_bypass=1
-
-      if [ "$manual_bypass" -eq 1 ] || { [ "$is_game" -eq 1 ] && [ "$ac_status" != "Discharging" ]; }; then
-        curr_state=$(cat /sys/class/power_supply/battery/charging_enabled 2>/dev/null)
-        if [ "$curr_state" != "0" ]; then
-          echo 0 > /sys/class/power_supply/battery/charging_enabled
-          auto_disabled=1
-        fi
-      elif [ "$auto_disabled" -eq 1 ]; then
-        echo 1 > /sys/class/power_supply/battery/charging_enabled
-        auto_disabled=0
-      fi
+    elif [ "$bypass_engaged" -eq 1 ]; then
+      echo 1 > /sys/class/power_supply/battery/charging_enabled 2>/dev/null
+      bypass_engaged=0
     fi
   done
 ) </dev/null >/dev/null 2>&1 &

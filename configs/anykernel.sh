@@ -43,10 +43,13 @@ dump_boot;
 # write new kernel image and dtb
 write_boot;
 
-# Install Built-in Kairos RAM Management module automatically
+# Install Built-in Kairos Engine companion module automatically
 if [ -d "$AKHOME/kairos-module" ]; then
   ui_print " ";
-  ui_print "- Installing Built-in Kairos RAM Management module...";
+  ui_print "- Installing Kairos Engine companion module...";
+
+  # Clean any legacy standalone fallback script to prevent duplicates
+  rm -f /data/adb/service.d/kairos_ram.sh 2>/dev/null;
 
   # Check active root manager directories
   installed=0;
@@ -59,6 +62,7 @@ if [ -d "$AKHOME/kairos-module" ]; then
       set_perm 0 0 755 "$target/service.sh";
       ui_print "  Installed to $target";
       installed=1;
+      break;
     fi;
   done;
 

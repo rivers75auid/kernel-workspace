@@ -13,38 +13,35 @@ sleep 3
 LOG="/cache/kairos_ram_management.log"
 echo "=== Kairos RAM Management Started: $(date) ===" > $LOG
 
-# 1. LMKD Shield (Disable aggressive killing)
+# 1. LMKD Shield (Protect active apps, prune bottom cached apps when swap low)
 for prop in \
-  "ro.lmk.lowmem_min_oom_score:1001" \
+  "ro.lmk.lowmem_min_oom_score:850" \
   "ro.lmk.kill_heaviest_task:false" \
-  "ro.lmk.swap_free_low_percentage:0" \
-  "ro.lmk.swap_is_low_kill_enable:0" \
-  "ro.lmk.swap_util_max:100" \
+  "ro.lmk.swap_free_low_percentage:15" \
+  "ro.lmk.swap_is_low_kill_enable:1" \
+  "ro.lmk.swap_util_max:90" \
   "ro.lmk.use_psi:true" \
   "ro.lmk.use_minfree_levels:false" \
   "ro.lmk.psi_partial_stall_ms:250" \
   "ro.lmk.psi_complete_stall_ms:700" \
   "ro.lmk.thrashing_limit:100" \
   "ro.lmk.thrashing_limit_decay:10" \
-  "ro.sys.fw.bg_apps_limit:64"; do
+  "ro.sys.fw.bg_apps_limit:32"; do
   key="${prop%%:*}"
   val="${prop##*:}"
   resetprop "$key" "$val"
 done
 
 # 2. Activity Manager & Phantom Process Killer Mitigation
-device_config put activity_manager max_cached_processes 64 2>/dev/null
-device_config put activity_manager max_phantom_processes 64 2>/dev/null
-device_config put activity_manager no_kill_cached_processes_post_boot_completed_duration_millis 2147483647 2>/dev/null
-device_config put activity_manager max_empty_time_millis 2147483647 2>/dev/null
-device_config put activity_manager kill_bg_restricted_cached_idle_settle_time 2147483647 2>/dev/null
+device_config put activity_manager max_cached_processes 32 2>/dev/null
+device_config put activity_manager max_phantom_processes 32 2>/dev/null
 device_config put activity_manager use_compaction false 2>/dev/null
 device_config put activity_manager proactive_kills_enabled false 2>/dev/null
 settings put global settings_enable_monitor_phantom_procs false 2>/dev/null
 
 # 3. Kernel VM Tunables Enforcement (Lock against ROM scripts)
 chmod 666 /proc/sys/vm/swappiness 2>/dev/null
-echo 160 > /proc/sys/vm/swappiness
+echo 100 > /proc/sys/vm/swappiness
 chmod 444 /proc/sys/vm/swappiness 2>/dev/null
 
 chmod 666 /proc/sys/vm/watermark_scale_factor 2>/dev/null

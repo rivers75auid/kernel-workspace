@@ -35,7 +35,17 @@ let appState = {
     heavy_swap_apps: [],
     swappiness: 100,
     zram_size: "4000M",
-    bg_limit: 32
+    bg_limit: 32,
+    charge_limit: 100
+  },
+  display: {
+    physWidth: 720,
+    physHeight: 1650,
+    physDpi: 268,
+    currWidth: 720,
+    currHeight: 1650,
+    currDpi: 268,
+    selectedScale: 1.0
   },
   installedPackages: [],
   filteredPackages: []
@@ -68,6 +78,7 @@ const el = {
   pwrCurrent: document.getElementById("val-pwr-current"),
   pwrVoltage: document.getElementById("val-pwr-voltage"),
   chkBypassMaster: document.getElementById("chk-bypass-master"),
+  groupChargeLimit: document.getElementById("group-charge-limit"),
 
   // Apps
   appSearch: document.getElementById("app-search"),
@@ -78,7 +89,14 @@ const el = {
   groupSwappiness: document.getElementById("group-swappiness"),
   groupZramSize: document.getElementById("group-zram-size"),
   groupBgLimit: document.getElementById("group-bg-limit"),
-  btnApplyTunables: document.getElementById("btn-apply-tunables")
+  btnApplyTunables: document.getElementById("btn-apply-tunables"),
+
+  // Display
+  valDisplayRes: document.getElementById("val-display-res"),
+  valDisplayDpi: document.getElementById("val-display-dpi"),
+  groupDisplayScale: document.getElementById("group-display-scale"),
+  btnApplyDisplay: document.getElementById("btn-apply-display"),
+  btnResetDisplay: document.getElementById("btn-reset-display")
 };
 
 function log(msg) {
@@ -334,9 +352,11 @@ function setupPillGroup(groupEl, configKey) {
 setupPillGroup(el.groupSwappiness, "swappiness");
 setupPillGroup(el.groupZramSize, "zram_size");
 setupPillGroup(el.groupBgLimit, "bg_limit");
+if (el.groupChargeLimit) setupPillGroup(el.groupChargeLimit, "charge_limit");
 
 function syncTunablesUI() {
   const selectPill = (groupEl, val) => {
+    if (!groupEl) return;
     groupEl.querySelectorAll(".pill-btn").forEach((b) => {
       if (b.getAttribute("data-val") == String(val)) {
         b.classList.add("active");
@@ -348,6 +368,7 @@ function syncTunablesUI() {
   selectPill(el.groupSwappiness, appState.config.swappiness);
   selectPill(el.groupZramSize, appState.config.zram_size);
   selectPill(el.groupBgLimit, appState.config.bg_limit);
+  selectPill(el.groupChargeLimit, appState.config.charge_limit || 100);
 }
 
 el.btnApplyTunables.addEventListener("click", async () => {
@@ -376,10 +397,97 @@ el.btnApplyTunables.addEventListener("click", async () => {
   log("Kernel memory tunables applied successfully.");
 });
 
+// Display Manager
+async function fetchDisplayInfo() {
+  const sizeRes = await exec("wm size");
+  const densRes = await exec("wm density");
+
+  let physW = 720, physH = 1650, currW = 720, currH = 1650;
+  let physDpi = 268, currDpi = 268;
+
+  const physSizeMatch = sizeRes.stdout.match(/Physical size:\s*(\d+)x(\d+)/i);
+  if (physSizeMatch) {
+    physW = parseInt(physSizeMatch[1]);
+    physH = parseInt(physSizeMatch[2]);
+  }
+  const overSizeMatch = sizeRes.stdout.match(/Override size:\s*(\d+)x(\d+)/i);
+  if (overSizeMatch) {
+    currW = parseInt(overSizeMatch[1]);
+    currH = parseInt(overSizeMatch[2]);
+  } else {
+    currW = physW;
+    currH = physH;
+  }
+
+  const physDensMatch = densRes.stdout.match(/Physical density:\s*(\d+)/i);
+  if (physDensMatch) {
+    physDpi = parseInt(physDensMatch[1]);
+  }
+  const overDensMatch = densRes.stdout.match(/Override density:\s*(\d+)/i);
+  if (overDensMatch) {
+    currDpi = parseInt(overDensMatch[1]);
+  } else {
+    currDpi = physDpi;
+  }
+
+  appState.display.physWidth = physW;
+  appState.display.physHeight = physH;
+  appState.display.physDpi = physDpi;
+  appState.display.currWidth = currW;
+  appState.display.currHeight = currH;
+  appState.display.currDpi = currDpi;
+
+  if (el.valDisplayRes) el.valDisplayRes.textContent = `${currW}x${currH}`;
+  if (el.valDisplayDpi) el.valDisplayDpi.textContent = `${currDpi} dpi`;
+}
+
+if (el.groupDisplayScale) {
+  el.groupDisplayScale.addEventListener("click", (e) => {
+    const btn = e.target.closest(".pill-btn");
+    if (!btn) return;
+    el.groupDisplayScale.querySelectorAll(".pill-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    appState.display.selectedScale = parseFloat(btn.getAttribute("data-scale")) || 1.0;
+  });
+}
+
+if (el.btnApplyDisplay) {
+  el.btnApplyDisplay.addEventListener("click", async () => {
+    const scale = appState.display.selectedScale;
+    log(`Applying display scale ${scale * 100}%...`);
+    if (Math.abs(scale - 1.0) < 0.01) {
+      await exec("wm size reset && wm density reset");
+    } else {
+      const targetW = Math.round(appState.display.physWidth * scale);
+      const targetH = Math.round(appState.display.physHeight * scale);
+      const targetDpi = Math.round(appState.display.physDpi * scale);
+      await exec(`wm size ${targetW}x${targetH} && wm density ${targetDpi}`);
+    }
+    await fetchDisplayInfo();
+    log("Display resolution scaled successfully.");
+  });
+}
+
+if (el.btnResetDisplay) {
+  el.btnResetDisplay.addEventListener("click", async () => {
+    log("Resetting display to native resolution...");
+    await exec("wm size reset && wm density reset");
+    if (el.groupDisplayScale) {
+      el.groupDisplayScale.querySelectorAll(".pill-btn").forEach((b) => {
+        b.classList.toggle("active", b.getAttribute("data-scale") === "1.0");
+      });
+    }
+    appState.display.selectedScale = 1.0;
+    await fetchDisplayInfo();
+    log("Display reset to native 100%.");
+  });
+}
+
 // Boot Initializer
 async function init() {
   await loadConfig();
   await fetchTelemetry();
+  await fetchDisplayInfo();
   setInterval(fetchTelemetry, 3500);
 }
 

@@ -82,7 +82,8 @@ if [ ! -f "$CONFIG" ]; then
   "swappiness": 100,
   "zram_size": "4000M",
   "bg_limit": 32,
-  "thermal_limit_c": 52
+  "thermal_limit_c": 52,
+  "charge_limit": 100
 }
 EOF
   chmod 644 "$CONFIG"
@@ -92,6 +93,7 @@ fi
 (
   bypass_engaged=0
   thermal_cut=0
+  cap_cut=0
 
   while true; do
     sleep 4
@@ -100,17 +102,36 @@ fi
 
     batt_temp=$(cat /sys/class/power_supply/battery/temp 2>/dev/null)
     [ -z "$batt_temp" ] && batt_temp=0
+    batt_cap=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null)
+    [ -z "$batt_cap" ] && batt_cap=0
     curr_state=$(cat /sys/class/power_supply/battery/charging_enabled 2>/dev/null)
     ac_status=$(cat /sys/class/power_supply/battery/status 2>/dev/null)
 
-    # 1. Thermal Guard (Bypass when temp >= 52°C, resume when <= 46°C)
+    # 1. Thermal Guard (Universal fail-safe: bypass at >= 52°C, resume <= 46°C)
     if [ "$batt_temp" -ge 520 ]; then
       thermal_cut=1
     elif [ "$batt_temp" -le 460 ]; then
       thermal_cut=0
     fi
 
-    # 2. Game Mode & Manual Check
+    # 2. Battery Charge Limit Cut-off (e.g. 80%, 85%, 90%)
+    charge_limit=100
+    if grep -q '"charge_limit":' "$CONFIG" 2>/dev/null; then
+      charge_limit=$(grep -o '"charge_limit": [0-9]*' "$CONFIG" | cut -d' ' -f2)
+    fi
+    [ -z "$charge_limit" ] && charge_limit=100
+
+    if [ "$charge_limit" -lt 100 ]; then
+      if [ "$batt_cap" -ge "$charge_limit" ]; then
+        cap_cut=1
+      elif [ "$batt_cap" -le $((charge_limit - 3)) ]; then
+        cap_cut=0
+      fi
+    else
+      cap_cut=0
+    fi
+
+    # 3. Game Mode & Manual Check
     curr_pkg=$(dumpsys window 2>/dev/null | grep -m 1 "mFocusedApp" | grep -o "u0 [^/]*" | cut -d" " -f2)
     is_game=0
     if [ -n "$curr_pkg" ]; then
@@ -122,7 +143,7 @@ fi
 
     # Determine desired charging state
     should_bypass=0
-    if [ "$thermal_cut" -eq 1 ] || [ "$manual_bypass" -eq 1 ] || { [ "$is_game" -eq 1 ] && [ "$ac_status" != "Discharging" ]; }; then
+    if [ "$thermal_cut" -eq 1 ] || [ "$cap_cut" -eq 1 ] || [ "$manual_bypass" -eq 1 ] || { [ "$is_game" -eq 1 ] && [ "$ac_status" != "Discharging" ]; }; then
       should_bypass=1
     fi
 

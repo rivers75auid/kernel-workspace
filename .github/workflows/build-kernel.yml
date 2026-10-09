@@ -273,7 +273,7 @@ jobs:
           # Package Kairos RAM Management Magisk/KSU module
           echo "===> Packaging Kairos RAM Management Module..."
           cd "$GITHUB_WORKSPACE/modules/kairos-memory-suite"
-          zip -r9 "$GITHUB_WORKSPACE/output/Kairos-RAM-Management-v2.0.zip" ./*
+          zip -r9 "$GITHUB_WORKSPACE/output/Kairos-RAM-Management-v2.1.zip" ./*
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4

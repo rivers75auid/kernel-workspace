@@ -68,7 +68,55 @@ if [ -d /dev/stune/top-app ]; then
   echo 1 > /dev/stune/top-app/schedtune.prefer_idle 2>/dev/null
 fi
 
-# 5. Restart LMKD once to adopt new parameters cleanly
-killall lmkd 2>/dev/null
-
+# 5. Parameters applied
 echo "=== Kairos RAM Management Applied Successfully ===" >> $LOG
+
+# 6. Kairos Dynamic Background Policy Daemon
+CONFIG="/data/adb/kairos_config.json"
+if [ ! -f "$CONFIG" ]; then
+  cat << 'EOF' > "$CONFIG"
+{
+  "bypass_charging": false,
+  "auto_bypass_games": [],
+  "heavy_swap_apps": [],
+  "swappiness": 100,
+  "zram_size": "4000M",
+  "bg_limit": 32
+}
+EOF
+  chmod 644 "$CONFIG"
+fi
+
+# Background supervisor loop
+(
+  auto_disabled=0
+  while true; do
+    sleep 4
+
+    if [ -f "$CONFIG" ]; then
+      ac_status=$(cat /sys/class/power_supply/battery/status 2>/dev/null)
+      curr_pkg=$(dumpsys window 2>/dev/null | grep -m 1 "mFocusedApp" | grep -o "u0 [^/]*" | cut -d" " -f2)
+
+      # Check if current focused app is flagged in auto_bypass_games
+      is_game=0
+      if [ -n "$curr_pkg" ]; then
+        grep -q "\"$curr_pkg\"" "$CONFIG" 2>/dev/null && is_game=1
+      fi
+
+      manual_bypass=0
+      grep -q '"bypass_charging": true' "$CONFIG" 2>/dev/null && manual_bypass=1
+
+      if [ "$manual_bypass" -eq 1 ] || { [ "$is_game" -eq 1 ] && [ "$ac_status" != "Discharging" ]; }; then
+        curr_state=$(cat /sys/class/power_supply/battery/charging_enabled 2>/dev/null)
+        if [ "$curr_state" != "0" ]; then
+          echo 0 > /sys/class/power_supply/battery/charging_enabled
+          auto_disabled=1
+        fi
+      elif [ "$auto_disabled" -eq 1 ]; then
+        echo 1 > /sys/class/power_supply/battery/charging_enabled
+        auto_disabled=0
+      fi
+    fi
+  done
+) </dev/null >/dev/null 2>&1 &
+

@@ -38,19 +38,20 @@ def patch_vm_sched():
             f.write(content)
         print("[+] mm/page_alloc.c patched: Hardcoded low watermark!")
 
-    # 2. Patch mm/swap.c & include/linux/swap.h: Kunci vm_swappiness = 160 & page_cluster = 0
+    # 2. Patch mm/swap.c & include/linux/swap.h: Set vm_swappiness = 100 (balanced) & page_cluster = 0
     sw_file = os.path.join(kernel_root, "mm/swap.c")
     if os.path.exists(sw_file):
         with open(sw_file, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
-        content = content.replace("int vm_swappiness = 60;", "int vm_swappiness = 160;")
-        content = content.replace("int vm_swappiness = 30;", "int vm_swappiness = 160;")
+        content = content.replace("int vm_swappiness = 60;", "int vm_swappiness = 100;")
+        content = content.replace("int vm_swappiness = 30;", "int vm_swappiness = 100;")
+        content = content.replace("int vm_swappiness = 160;", "int vm_swappiness = 100;")
         content = content.replace("int page_cluster = 3;", "int page_cluster = 0;")
         content = content.replace("int page_cluster = 2;", "int page_cluster = 0;")
         content = content.replace("int page_cluster = 1;", "int page_cluster = 0;")
         with open(sw_file, "w", encoding="utf-8", newline="\n") as f:
             f.write(content)
-        print("[+] mm/swap.c patched: vm_swappiness=160, page_cluster=0")
+        print("[+] mm/swap.c patched: vm_swappiness=100 (balanced), page_cluster=0")
 
     # 3. Patch kernel/sched/cpufreq_schedutil.c:
     # Native kernel lock: Tolak input userspace jika ingin menurunkan down_rate_limit_us di bawah 20ms (20000us)
@@ -97,23 +98,8 @@ def patch_vm_sched():
             f.write(content)
         print("[+] mm/compaction.c patched: compact_unevictable_allowed=1")
 
-    # 5. Patch fs/proc/meminfo.c: Sembunyikan 'Swap is Low' dari LMKD
-    mi_file = os.path.join(kernel_root, "fs/proc/meminfo.c")
-    if os.path.exists(mi_file):
-        with open(mi_file, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
-        target_swapfree = 'si_swapinfo(&i);'
-        patch_swapfree = (
-            'si_swapinfo(&i);\n'
-            '\t/* Prevent userspace LMKD swap_is_low false kill */\n'
-            '\tif (i.freeswap < (i.totalswap / 2))\n'
-            '\t\ti.freeswap = i.totalswap / 2;'
-        )
-        if target_swapfree in content and "Prevent userspace LMKD" not in content:
-            content = content.replace(target_swapfree, patch_swapfree, 1)
-            with open(mi_file, "w", encoding="utf-8", newline="\n") as f:
-                f.write(content)
-            print("[+] fs/proc/meminfo.c patched: LMKD 'swap is low' trigger neutralized permanently!")
+    # 5. fs/proc/meminfo.c: Keep accurate swap accounting so LMKD can prune at true swap exhaustion
+    # (Unmodified to ensure stable behavior on both rooted and rootless setups)
 
     # 6. Patch kernel/sysctl.c:
     # IMMUNITY LOCK: Lindungi vm_swappiness agar TIDAK BISA DITIMPA di bawah 160 oleh script ROM apa pun!

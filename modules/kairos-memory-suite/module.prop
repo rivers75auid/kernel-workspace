@@ -1,6 +1,7 @@
 id=kairos_memory_suite
 name=Kairos RAM Management
-version=v2.0
-versionCode=200
+version=v2.1
+versionCode=210
 author=Kairos
-description=Built-in memory management module for Kairos Kernel.
+description=Memory management & power control suite for Kairos Kernel.
+web=true

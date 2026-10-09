@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';">
+  <title>Kairos Engine</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-title">Kairos Engine</span>
+      <span class="brand-version">v2.1</span>
+    </div>
+    <div class="header-status">
+      <span id="header-temp" class="stat-badge">--°C</span>
+      <span id="header-charge" class="stat-badge">--W</span>
+    </div>
+  </header>
+
+  <nav class="nav-bar">
+    <button class="nav-btn active" data-tab="telemetry">Status</button>
+    <button class="nav-btn" data-tab="apps">App Priority</button>
+    <button class="nav-btn" data-tab="tunables">Kernel & RAM</button>
+  </nav>
+
+  <main class="content-container">
+    <!-- Tab 1: Live Status & Quick Action -->
+    <section id="tab-telemetry" class="tab-pane active">
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">Memory Allocation</span>
+          <button id="btn-refresh" class="btn-sm">Refresh</button>
+        </div>
+        <div class="metrics-grid">
+          <div class="metric-cell">
+            <span class="metric-label">Physical Free</span>
+            <span id="val-mem-free" class="metric-val">-- MB</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-label">Physical Avail</span>
+            <span id="val-mem-avail" class="metric-val">-- MB</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-label">ZRAM Used</span>
+            <span id="val-zram-used" class="metric-val">-- MB</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-label">ZRAM Physical Cost</span>
+            <span id="val-zram-phys" class="metric-val">-- MB</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-label">Compression Ratio</span>
+            <span id="val-zram-ratio" class="metric-val">-- x</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-label">Total Swap</span>
+            <span id="val-zram-total" class="metric-val">-- MB</span>
+          </div>
+        </div>
+        <div class="progress-wrap">
+          <div class="progress-label">
+            <span>Swap Utilization</span>
+            <span id="val-swap-pct">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div id="bar-swap" class="progress-fill" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="card-actions">
+          <button id="btn-compact" class="btn">Compact ZRAM</button>
+          <button id="btn-trim" class="btn">Trim Inactive Apps</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">Power & Bypass Charging</span>
+        </div>
+        <div class="metrics-grid">
+          <div class="metric-cell">
+            <span class="metric-label">State</span>
+            <span id="val-pwr-status" class="metric-val">--</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-label">Protocol</span>
+            <span id="val-pwr-type" class="metric-val">--</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-label">Current</span>
+            <span id="val-pwr-current" class="metric-val">-- mA</span>
+          </div>
+          <div class="metric-cell">
+            <span class="metric-label">Battery Voltage</span>
+            <span id="val-pwr-voltage" class="metric-val">-- V</span>
+          </div>
+        </div>
+        <div class="control-row">
+          <div class="control-info">
+            <span class="control-name">Manual Bypass Charging</span>
+            <span class="control-desc">Power motherboard directly; disconnect battery charge input to eliminate heat while gaming.</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="chk-bypass-master">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 2: App Priority & Game Focus -->
+    <section id="tab-apps" class="tab-pane">
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">Per-App Memory & Power Policy</span>
+        </div>
+        <p class="section-desc">
+          Pin critical games to physical RAM to avoid reload during chat switches, or enable auto-bypass charging during active sessions.
+        </p>
+        <div class="search-box">
+          <input type="text" id="app-search" placeholder="Filter packages (e.g. mobilelegends, chrome)...">
+        </div>
+        <div id="app-list-container" class="app-list">
+          <div class="empty-state">Loading installed user applications...</div>
+        </div>
+        <div class="card-actions">
+          <button id="btn-save-apps" class="btn btn-primary">Save App Rules</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 3: Kernel & RAM Tunables -->
+    <section id="tab-tunables" class="tab-pane">
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">Kernel Memory Architecture</span>
+        </div>
+        <div class="setting-group">
+          <label class="setting-label">VM Swappiness</label>
+          <span class="setting-hint">Target eagerness to page inactive anonymous memory into ZRAM.</span>
+          <div class="option-pill-group" id="group-swappiness">
+            <button class="pill-btn" data-val="60">60 (Conservative)</button>
+            <button class="pill-btn active" data-val="100">100 (Balanced)</button>
+            <button class="pill-btn" data-val="140">140 (Aggressive)</button>
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">ZRAM Disk Size</label>
+          <span class="setting-hint">Virtual capacity allocated for uncompressed swap data. Requires swap reset.</span>
+          <div class="option-pill-group" id="group-zram-size">
+            <button class="pill-btn" data-val="2500M">2.5 GB</button>
+            <button class="pill-btn" data-val="3187M">3.1 GB (Stock)</button>
+            <button class="pill-btn active" data-val="4000M">4.0 GB</button>
+            <button class="pill-btn" data-val="4500M">4.5 GB</button>
+          </div>
+        </div>
+
+        <div class="setting-group">
+          <label class="setting-label">LMKD Cached App Headroom</label>
+          <span class="setting-hint">Maximum dormant background processes before pruning.</span>
+          <div class="option-pill-group" id="group-bg-limit">
+            <button class="pill-btn" data-val="24">24 Apps</button>
+            <button class="pill-btn active" data-val="32">32 Apps</button>
+            <button class="pill-btn" data-val="48">48 Apps</button>
+          </div>
+        </div>
+
+        <div class="card-actions">
+          <button id="btn-apply-tunables" class="btn btn-primary">Apply Kernel Tunables</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <span id="footer-log">Connected to Kairos Root Interface</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -34,9 +34,9 @@ on:
         required: true
         default: 'v2.3.0'
       KSU_REF:
-        description: 'BakaSU (ReSukiSU) ref to pin: tag or branch (e.g. v4.2.0-rc3)'
+        description: 'BakaSU (ReSukiSU) ref to pin: tag, branch, or commit SHA'
         required: true
-        default: 'v4.2.0-rc3'
+        default: '516d3e87fbc986ccefdde2c2765f1700612441a9'
       ENABLE_POTATO_SUITE:
         description: 'Enable Potato Tuning Suite (WALT/Schedtune, Anxiety I/O, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)'
         required: true
@@ -121,7 +121,7 @@ jobs:
             "${{ github.event.inputs.ENABLE_SUSFS || 'true' }}" \
             "${{ github.event.inputs.SUSFS_VERSION_TAG || 'v2.3.0' }}" \
             "${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}" \
-            "${{ github.event.inputs.KSU_REF || 'v4.2.0-rc3' }}"
+            "${{ github.event.inputs.KSU_REF || '516d3e87fbc986ccefdde2c2765f1700612441a9' }}"
 
       - name: Apply Custom Kernel Name & Potato Suite Optimizations
         run: |
@@ -294,18 +294,47 @@ jobs:
           compression-level: 6
 
       - name: Download matching BakaSU Manager APK
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          KSU_REF="${{ github.event.inputs.KSU_REF || 'v4.2.0-rc3' }}"
+          KSU_REF="${{ github.event.inputs.KSU_REF || '516d3e87fbc986ccefdde2c2765f1700612441a9' }}"
           mkdir -p "$GITHUB_WORKSPACE/output"
-          APK_URL=$(curl -s "https://api.github.com/repos/Baka-SU/BakaSU/releases/tags/${KSU_REF}" \
-            | grep -o 'https://[^"]*arm64-v8a-release\.apk' | head -1)
-          if [ -n "$APK_URL" ]; then
-            echo "===> Downloading BakaSU manager for ${KSU_REF}: $APK_URL"
-            curl -sL -o "$GITHUB_WORKSPACE/output/bakasu-manager.apk" "$APK_URL"
-            ls -la "$GITHUB_WORKSPACE/output/bakasu-manager.apk"
-          else
-            echo "===> No manager APK asset found for ${KSU_REF}, skipping"
+          APK=""
+          case "$KSU_REF" in
+            *[!0-9a-f]* )
+              APK=$(curl -s "https://api.github.com/repos/Baka-SU/BakaSU/releases/tags/${KSU_REF}" \
+                | grep -o 'https://[^"]*arm64-v8a-release\.apk' | head -1)
+              [ -n "$APK" ] && echo "===> Manager from release tag ${KSU_REF}"
+              ;;
+          esac
+          if [ -z "$APK" ]; then
+            RUN_ID=$(curl -s -H "Authorization: token $GH_TOKEN" \
+              "https://api.github.com/repos/Baka-SU/BakaSU/actions/workflows/217367501/runs?status=success&branch=main&per_page=1" \
+              | grep -o '"id": [0-9]*' | head -1 | grep -o '[0-9]*')
+            if [ -n "$RUN_ID" ]; then
+              ART_ID=$(curl -s -H "Authorization: token $GH_TOKEN" \
+                "https://api.github.com/repos/Baka-SU/BakaSU/actions/runs/${RUN_ID}/artifacts" \
+                | python3 -c "import json,sys; d=json.load(sys.stdin); a=[x for x in d.get('artifacts',[]) if x['name']=='Manager-release']; print(a[0]['id'] if a else '')")
+              if [ -n "$ART_ID" ]; then
+                echo "===> Manager from BakaSU main CI run ${RUN_ID} (artifact ${ART_ID})"
+                curl -sL -H "Authorization: token $GH_TOKEN" -o /tmp/mgr.zip \
+                  "https://api.github.com/repos/Baka-SU/BakaSU/actions/artifacts/${ART_ID}/zip" \
+                  || curl -sL -o /tmp/mgr.zip "https://nightly.link/Baka-SU/BakaSU/actions/artifacts/${ART_ID}.zip"
+                APK=$(find /tmp -maxdepth 2 -name "*arm64-v8a-release.apk" | head -1)
+              fi
+            fi
           fi
+          if [ -z "$APK" ]; then
+            echo "===> Fallback: latest release asset"
+            APK=$(curl -s "https://api.github.com/repos/Baka-SU/BakaSU/releases/latest" \
+              | grep -o 'https://[^"]*arm64-v8a-release\.apk' | head -1)
+            [ -n "$APK" ] && curl -sL -o "$GITHUB_WORKSPACE/output/bakasu-manager.apk" "$APK"
+          elif [[ "$APK" == http* ]]; then
+            curl -sL -o "$GITHUB_WORKSPACE/output/bakasu-manager.apk" "$APK"
+          else
+            cp "$APK" "$GITHUB_WORKSPACE/output/bakasu-manager.apk"
+          fi
+          ls -la "$GITHUB_WORKSPACE/output/bakasu-manager.apk" 2>/dev/null || echo "===> no manager apk this build"
 
       - name: Send Telegram Notification & File
         if: always()

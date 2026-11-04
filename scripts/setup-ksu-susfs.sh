@@ -12,7 +12,21 @@ DEFCONFIG_PATH="arch/arm64/configs/$DEFCONFIG"
 
 if [ "$ENABLE_KSU" = "true" ]; then
     echo "===> Mengintegrasikan ReSukiSU (Native Support untuk Non-GKI 4.19 & SuSFS)..."
-    git clone --depth=1 -b "$KSU_REF" https://github.com/ReSukiSU/ReSukiSU.git "$GITHUB_WORKSPACE/kernel_source/KernelSU"
+    case "$KSU_REF" in
+      *[!0-9a-f]*|"" )
+        git clone --depth=1 -b "$KSU_REF" https://github.com/ReSukiSU/ReSukiSU.git "$GITHUB_WORKSPACE/kernel_source/KernelSU"
+        ;;
+      * )
+        if ! git clone --depth=1 -b "$KSU_REF" https://github.com/ReSukiSU/ReSukiSU.git "$GITHUB_WORKSPACE/kernel_source/KernelSU" 2>/dev/null; then
+          rm -rf "$GITHUB_WORKSPACE/kernel_source/KernelSU"
+          echo "===> KSU_REF is a commit SHA: fetching $KSU_REF directly..."
+          git init -q "$GITHUB_WORKSPACE/kernel_source/KernelSU"
+          git -C "$GITHUB_WORKSPACE/kernel_source/KernelSU" remote add origin https://github.com/ReSukiSU/ReSukiSU.git
+          git -C "$GITHUB_WORKSPACE/kernel_source/KernelSU" fetch --depth=1 -q origin "$KSU_REF"
+          git -C "$GITHUB_WORKSPACE/kernel_source/KernelSU" checkout -q --detach FETCH_HEAD
+        fi
+        ;;
+    esac
 
     rm -rf drivers/kernelsu
     ln -sfn "$GITHUB_WORKSPACE/kernel_source/KernelSU/kernel" drivers/kernelsu

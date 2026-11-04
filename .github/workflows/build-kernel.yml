@@ -33,6 +33,10 @@ on:
         description: 'SUSFS Header Version Tag'
         required: true
         default: 'v2.3.0'
+      KSU_REF:
+        description: 'BakaSU (ReSukiSU) ref to pin: tag or branch (e.g. v4.2.0-rc3)'
+        required: true
+        default: 'v4.2.0-rc3'
       ENABLE_POTATO_SUITE:
         description: 'Enable Potato Tuning Suite (WALT/Schedtune, Anxiety I/O, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)'
         required: true
@@ -47,6 +51,10 @@ on:
       - 'configs/**'
       - 'scripts/**'
       - 'patches/**'
+
+concurrency:
+  group: build-kernel-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -110,9 +118,10 @@ jobs:
           chmod +x "$GITHUB_WORKSPACE/scripts/setup-ksu-susfs.sh"
           bash "$GITHUB_WORKSPACE/scripts/setup-ksu-susfs.sh" \
             "${{ github.event.inputs.ENABLE_RESUKISU || 'true' }}" \
-            "true" \
+            "${{ github.event.inputs.ENABLE_SUSFS || 'true' }}" \
             "${{ github.event.inputs.SUSFS_VERSION_TAG || 'v2.3.0' }}" \
-            "${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
+            "${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}" \
+            "${{ github.event.inputs.KSU_REF || 'v4.2.0-rc3' }}"
 
       - name: Apply Custom Kernel Name & Potato Suite Optimizations
         run: |
@@ -138,9 +147,6 @@ jobs:
 
           echo "===> Enabling Novatek touchscreen ESD recovery & edge ghost-touch fix..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-touch.py"
-
-          echo "===> Enabling SMB1351 HVDCP_3 (Quick Charge 3.0 18W) notification fix..."
-          python3 "$GITHUB_WORKSPACE/scripts/patch-charger.py"
 
           echo "===> Baking Native In-Kernel VM, ZRAM & Schedutil Defaults (No Scripts / Rootless)..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-vm-sched.py"
@@ -205,12 +211,7 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz-dtb dtbo.img dtb.img || \
-          make -j$(nproc --all) ARCH=arm64 O=out \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+            Image.gz-dtb dtb.img
 
       - name: Package with AnyKernel3
         run: |
@@ -273,7 +274,7 @@ jobs:
           # Package Kairos RAM Management Magisk/KSU module
           echo "===> Packaging Kairos RAM Management Module..."
           cd "$GITHUB_WORKSPACE/modules/kairos-memory-suite"
-          zip -r9 "$GITHUB_WORKSPACE/output/Kairos-RAM-Management-v2.1.zip" ./*
+          zip -r9 "$GITHUB_WORKSPACE/output/Kairos-RAM-Management-v2.2.zip" ./*
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
@@ -313,7 +314,7 @@ jobs:
               fi
             fi
 
-            MODULE_ZIP="$GITHUB_WORKSPACE/output/Kairos-RAM-Management-v2.0.zip"
+            MODULE_ZIP="$GITHUB_WORKSPACE/output/Kairos-RAM-Management-v2.2.zip"
             if [ -f "$MODULE_ZIP" ]; then
               echo "===> Uploading Kairos RAM Management Module to Telegram..."
               curl -s -F "chat_id=${TELEGRAM_CHAT_ID}" \

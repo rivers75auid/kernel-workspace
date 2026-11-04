@@ -7,11 +7,12 @@ ENABLE_KSU="${1:-true}"
 ENABLE_SUS="${2:-true}"
 SUS_VER="${3:-v2.3.0}"
 DEFCONFIG="${4:-vendor/fog-perf_defconfig}"
+KSU_REF="${5:-v4.2.0-rc3}"
 DEFCONFIG_PATH="arch/arm64/configs/$DEFCONFIG"
 
 if [ "$ENABLE_KSU" = "true" ]; then
     echo "===> Mengintegrasikan ReSukiSU (Native Support untuk Non-GKI 4.19 & SuSFS)..."
-    git clone https://github.com/ReSukiSU/ReSukiSU.git "$GITHUB_WORKSPACE/kernel_source/KernelSU"
+    git clone --depth=1 -b "$KSU_REF" https://github.com/ReSukiSU/ReSukiSU.git "$GITHUB_WORKSPACE/kernel_source/KernelSU"
 
     rm -rf drivers/kernelsu
     ln -sfn "$GITHUB_WORKSPACE/kernel_source/KernelSU/kernel" drivers/kernelsu

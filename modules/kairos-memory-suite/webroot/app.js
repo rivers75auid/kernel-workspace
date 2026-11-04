@@ -36,6 +36,8 @@ let appState = {
     swappiness: 100,
     zram_size: "4000M",
     bg_limit: 32,
+    thermal_guard: false,
+    thermal_limit_c: 52,
     charge_limit: 100
   },
   display: {
@@ -57,6 +59,7 @@ const el = {
   tabPanes: document.querySelectorAll(".tab-pane"),
   headerTemp: document.getElementById("header-temp"),
   headerCharge: document.getElementById("header-charge"),
+  headerBatt: document.getElementById("header-batt"),
   footerLog: document.getElementById("footer-log"),
 
   // Telemetry
@@ -78,6 +81,7 @@ const el = {
   pwrCurrent: document.getElementById("val-pwr-current"),
   pwrVoltage: document.getElementById("val-pwr-voltage"),
   chkBypassMaster: document.getElementById("chk-bypass-master"),
+  chkThermalGuard: document.getElementById("chk-thermal-guard"),
   groupChargeLimit: document.getElementById("group-charge-limit"),
 
   // Apps
@@ -131,7 +135,9 @@ async function fetchTelemetry() {
     cat /sys/class/power_supply/battery/voltage_now 2>/dev/null;
     cat /sys/class/power_supply/battery/status 2>/dev/null;
     cat /sys/class/power_supply/usb/real_type 2>/dev/null;
-    cat /sys/class/power_supply/battery/charging_enabled 2>/dev/null;
+    echo "CE=$(cat /sys/class/power_supply/battery/charging_enabled 2>/dev/null)";
+    echo "IS=$(cat /sys/class/power_supply/battery/input_suspend 2>/dev/null)";
+    echo "CAP=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null)";
   `;
   const res = await exec(cmd);
   if (res.errno !== 0) {
@@ -176,7 +182,14 @@ async function fetchTelemetry() {
   const voltRaw = parseInt(pwrLines[2]) || 0;
   const statusStr = (pwrLines[3] || "Unknown").trim();
   const typeStr = (pwrLines[4] || "USB").trim();
-  const chargeEnabled = (pwrLines[5] || "1").trim() === "1";
+  const ceVal = (pwrLines.find(l => l.startsWith("CE=")) || "").slice(3).trim();
+  const isVal = (pwrLines.find(l => l.startsWith("IS=")) || "").slice(3).trim();
+  const capVal = (pwrLines.find(l => l.startsWith("CAP=")) || "").slice(4).trim();
+  let chargeEnabled = true;
+  let chargeNodeSupported = true;
+  if (ceVal !== "") chargeEnabled = ceVal === "1";
+  else if (isVal !== "") chargeEnabled = isVal === "0"; // input_suspend is inverted
+  else chargeNodeSupported = false;
 
   const tempC = (tempRaw / 10).toFixed(1);
   const currentMa = Math.abs(Math.round(currRaw / 1000));
@@ -210,9 +223,10 @@ async function fetchTelemetry() {
   el.pwrVoltage.textContent = voltageV + " V";
   el.headerTemp.textContent = tempC + "°C";
   el.headerCharge.textContent = watt + "W";
+  el.headerBatt.textContent = (capVal !== "" ? capVal : "--") + "%";
   el.chkBypassMaster.checked = !chargeEnabled;
 
-  log(`Live: Temp ${tempC}°C | Net ${watt}W | Swap ${boundedPct}%`);
+  log(`Live: Temp ${tempC}°C | Net ${watt}W | Swap ${boundedPct}%` + (chargeNodeSupported ? "" : " | Charging control unsupported"));
 }
 
 // Quick Actions
@@ -232,15 +246,33 @@ el.btnTrim.addEventListener("click", async () => {
   log("Inactive applications trimmed.");
 });
 
-// Master Bypass Toggle
+// Master Bypass Toggle (node-aware: charging_enabled vs input_suspend)
 el.chkBypassMaster.addEventListener("change", async (e) => {
   const bypass = e.target.checked;
-  const val = bypass ? "0" : "1";
-  log("Toggling charging hardware state...");
-  await exec(`echo ${val} > /sys/class/power_supply/battery/charging_enabled`);
+  const probe = await exec(
+    "if [ -e /sys/class/power_supply/battery/charging_enabled ]; then echo charging_enabled;" +
+    "elif [ -e /sys/class/power_supply/battery/input_suspend ]; then echo input_suspend;" +
+    "else echo none; fi"
+  );
+  const node = probe.stdout.trim();
+  if (node === "none") {
+    log("Charging control unsupported by this kernel, nothing to toggle.");
+    e.target.checked = false;
+    return;
+  }
+  const val = node === "charging_enabled" ? (bypass ? "0" : "1") : (bypass ? "1" : "0");
+  log(`Toggling charging via ${node}...`);
+  await exec(`echo ${val} > /sys/class/power_supply/battery/${node}`);
   appState.config.bypass_charging = bypass;
   saveConfig();
   await fetchTelemetry();
+});
+
+// Thermal Guard Toggle
+el.chkThermalGuard.addEventListener("change", async (e) => {
+  appState.config.thermal_guard = e.target.checked;
+  await saveConfig();
+  log("Thermal guard " + (e.target.checked ? "enabled" : "disabled") + ".");
 });
 
 // App Manager
@@ -261,7 +293,7 @@ function renderAppList() {
   const list = appState.installedPackages.filter((pkg) => pkg.toLowerCase().includes(query));
 
   if (list.length === 0) {
-    el.appListContainer.innerHTML = '<div class="empty-state">No matching packages found.</div>';
+    el.appListContainer.innerHTML = '<div class="empty-state">No packages match this filter. Adjust the search or save current rules.</div>';
     return;
   }
 
@@ -277,10 +309,10 @@ function renderAppList() {
         </div>
         <div class="app-tags">
           <button class="tag-btn ${isGame ? "active-game" : ""}" data-action="toggle-game" data-pkg="${pkg}">
-            ${isGame ? "✓ Game Mode" : "Game Mode"}
+            ${isGame ? "Game on" : "Game"}
           </button>
           <button class="tag-btn ${isSwap ? "active-swap" : ""}" data-action="toggle-swap" data-pkg="${pkg}">
-            ${isSwap ? "✓ Aggressive Swap" : "Force Swap"}
+            ${isSwap ? "Swap on" : "Swap"}
           </button>
         </div>
       </div>
@@ -369,6 +401,7 @@ function syncTunablesUI() {
   selectPill(el.groupZramSize, appState.config.zram_size);
   selectPill(el.groupBgLimit, appState.config.bg_limit);
   selectPill(el.groupChargeLimit, appState.config.charge_limit || 100);
+  if (el.chkThermalGuard) el.chkThermalGuard.checked = appState.config.thermal_guard === true;
 }
 
 el.btnApplyTunables.addEventListener("click", async () => {
@@ -390,7 +423,17 @@ el.btnApplyTunables.addEventListener("click", async () => {
 
   if (Math.abs(parseInt(currDisk) - targetBytes) > 50000000) {
     log(`Resizing ZRAM to ${zsize}...`);
-    await exec(`swapoff /dev/block/zram0 && echo ${zsize} > /sys/block/zram0/disksize && mkswap /dev/block/zram0 && swapon /dev/block/zram0 -p -2`);
+    const r = await exec(
+      `swapoff /dev/block/zram0 2>/dev/null; ` +
+      `echo ${zsize} > /sys/block/zram0/disksize 2>/dev/null || ` +
+      `{ echo 1 > /sys/block/zram0/reset && echo ${zsize} > /sys/block/zram0/disksize; }; ` +
+      `mkswap /dev/block/zram0 2>/dev/null && swapon /dev/block/zram0 -p -2 2>/dev/null; ` +
+      `grep -q zram0 /proc/swaps && echo ZRAM_OK || echo ZRAM_FAIL`
+    );
+    if ((r.stdout || "").includes("ZRAM_FAIL")) {
+      log("ZRAM resize FAILED, swap is OFF. Fix size or reboot.");
+      return;
+    }
   }
 
   await fetchTelemetry();

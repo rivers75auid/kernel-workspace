@@ -1,7 +1,7 @@
 id=kairos_memory_suite
 name=Kairos Engine
-version=v2.1
-versionCode=210
+version=v2.2
+versionCode=220
 author=Kairos
 description=Companion module with WebUI. Optional, safe to disable.
 web=true

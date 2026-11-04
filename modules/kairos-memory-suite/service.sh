@@ -82,6 +82,7 @@ if [ ! -f "$CONFIG" ]; then
   "swappiness": 100,
   "zram_size": "4000M",
   "bg_limit": 32,
+  "thermal_guard": false,
   "thermal_limit_c": 52,
   "charge_limit": 100
 }
@@ -89,9 +90,20 @@ EOF
   chmod 644 "$CONFIG"
 fi
 
+# Charging control node: smblite exposes no charging_enabled; fall back to input_suspend
+CHARGE_NODE=""
+CH_ON=1
+CH_OFF=0
+if [ -e /sys/class/power_supply/battery/charging_enabled ]; then
+  CHARGE_NODE="/sys/class/power_supply/battery/charging_enabled"
+elif [ -e /sys/class/power_supply/battery/input_suspend ]; then
+  CHARGE_NODE="/sys/class/power_supply/battery/input_suspend"
+  CH_ON=0   # input_suspend semantics are inverted: 0 = charging allowed
+  CH_OFF=1
+fi
+
 # Background supervisor loop
 (
-  bypass_engaged=0
   thermal_cut=0
   cap_cut=0
 
@@ -100,25 +112,31 @@ fi
 
     [ -f "$CONFIG" ] || continue
 
+    config_flat=$(tr -d '\n' < "$CONFIG")
     batt_temp=$(cat /sys/class/power_supply/battery/temp 2>/dev/null)
     [ -z "$batt_temp" ] && batt_temp=0
     batt_cap=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null)
     [ -z "$batt_cap" ] && batt_cap=0
-    curr_state=$(cat /sys/class/power_supply/battery/charging_enabled 2>/dev/null)
     ac_status=$(cat /sys/class/power_supply/battery/status 2>/dev/null)
 
-    # 1. Thermal Guard (Universal fail-safe: bypass at >= 52°C, resume <= 46°C)
-    if [ "$batt_temp" -ge 520 ]; then
-      thermal_cut=1
-    elif [ "$batt_temp" -le 460 ]; then
+    # 1. Thermal Guard (opt-in: cut at limit, resume 3°C below)
+    thermal_guard=0
+    printf '%s' "$config_flat" | grep -q '"thermal_guard": *true' && thermal_guard=1
+    thermal_limit_c=$(printf '%s' "$config_flat" | sed -n 's/.*"thermal_limit_c": *\([0-9]\{1,3\}\).*/\1/p')
+    [ -z "$thermal_limit_c" ] && thermal_limit_c=52
+    if [ "$thermal_guard" -eq 1 ]; then
+      limit_t=$((thermal_limit_c * 10))
+      if [ "$batt_temp" -ge "$limit_t" ]; then
+        thermal_cut=1
+      elif [ "$batt_temp" -le $((limit_t - 30)) ]; then
+        thermal_cut=0
+      fi
+    else
       thermal_cut=0
     fi
 
     # 2. Battery Charge Limit Cut-off (e.g. 80%, 85%, 90%)
-    charge_limit=100
-    if grep -q '"charge_limit":' "$CONFIG" 2>/dev/null; then
-      charge_limit=$(grep -o '"charge_limit": [0-9]*' "$CONFIG" | cut -d' ' -f2)
-    fi
+    charge_limit=$(printf '%s' "$config_flat" | sed -n 's/.*"charge_limit": *\([0-9]\{1,3\}\).*/\1/p')
     [ -z "$charge_limit" ] && charge_limit=100
 
     if [ "$charge_limit" -lt 100 ]; then
@@ -131,30 +149,36 @@ fi
       cap_cut=0
     fi
 
-    # 3. Game Mode & Manual Check
-    curr_pkg=$(dumpsys window 2>/dev/null | grep -m 1 "mFocusedApp" | grep -o "u0 [^/]*" | cut -d" " -f2)
+    # 3. Game Mode: match only inside the auto_bypass_games array
     is_game=0
-    if [ -n "$curr_pkg" ]; then
-      grep -q "\"$curr_pkg\"" "$CONFIG" 2>/dev/null && is_game=1
+    games_block=$(printf '%s' "$config_flat" | sed -n 's/.*"auto_bypass_games": *\[\([^]]*\)\].*/\1/p')
+    if [ -n "$games_block" ]; then
+      curr_pkg=$(dumpsys window 2>/dev/null | grep -m 1 "mFocusedApp" | grep -o "u0 [^/]*" | cut -d" " -f2)
+      if [ -n "$curr_pkg" ] && printf '%s\n' "$games_block" | grep -q "\"$curr_pkg\""; then
+        is_game=1
+      fi
     fi
 
     manual_bypass=0
-    grep -q '"bypass_charging": true' "$CONFIG" 2>/dev/null && manual_bypass=1
+    printf '%s' "$config_flat" | grep -q '"bypass_charging": *true' && manual_bypass=1
 
-    # Determine desired charging state
+    # 4. Desired charging state, compare-and-set every tick (never a latched flag)
     should_bypass=0
-    if [ "$thermal_cut" -eq 1 ] || [ "$cap_cut" -eq 1 ] || [ "$manual_bypass" -eq 1 ] || { [ "$is_game" -eq 1 ] && [ "$ac_status" != "Discharging" ]; }; then
+    if [ "$thermal_cut" -eq 1 ] || [ "$cap_cut" -eq 1 ] || [ "$manual_bypass" -eq 1 ]; then
+      should_bypass=1
+    elif [ "$is_game" -eq 1 ] && [ -n "$ac_status" ] && [ "$ac_status" != "Discharging" ]; then
       should_bypass=1
     fi
 
-    if [ "$should_bypass" -eq 1 ]; then
-      if [ "$curr_state" != "0" ]; then
-        echo 0 > /sys/class/power_supply/battery/charging_enabled 2>/dev/null
-        bypass_engaged=1
+    if [ -n "$CHARGE_NODE" ]; then
+      curr_state=$(cat "$CHARGE_NODE" 2>/dev/null)
+      if [ -n "$curr_state" ]; then
+        desired=$CH_ON
+        [ "$should_bypass" -eq 1 ] && desired=$CH_OFF
+        if [ "$curr_state" != "$desired" ]; then
+          echo "$desired" > "$CHARGE_NODE" 2>/dev/null
+        fi
       fi
-    elif [ "$bypass_engaged" -eq 1 ]; then
-      echo 1 > /sys/class/power_supply/battery/charging_enabled 2>/dev/null
-      bypass_engaged=0
     fi
   done
 ) </dev/null >/dev/null 2>&1 &

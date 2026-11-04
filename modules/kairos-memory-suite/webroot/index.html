@@ -12,27 +12,35 @@
   <header class="app-header">
     <div class="brand">
       <span class="brand-title">Kairos Engine</span>
-      <span class="brand-version">v2.1</span>
+      <span class="brand-version">v2.2</span>
     </div>
-    <div class="header-status">
-      <span id="header-temp" class="stat-badge">--°C</span>
-      <span id="header-charge" class="stat-badge">--W</span>
+    <div class="stat-strip">
+      <div class="stat-cell">
+        <span id="header-temp" class="stat-num">--</span>
+        <span class="stat-label">Temp</span>
+      </div>
+      <div class="stat-cell">
+        <span id="header-charge" class="stat-num">--</span>
+        <span class="stat-label">Net</span>
+      </div>
+      <div class="stat-cell">
+        <span id="header-batt" class="stat-num">--</span>
+        <span class="stat-label">Battery</span>
+      </div>
     </div>
   </header>
 
-  <nav class="nav-bar">
-    <button class="nav-btn active" data-tab="telemetry">Status</button>
-    <button class="nav-btn" data-tab="apps">App Priority</button>
-    <button class="nav-btn" data-tab="tunables">Kernel & RAM</button>
-  </nav>
-
   <main class="content-container">
-    <!-- Tab 1: Live Status & Quick Action -->
+    <!-- Tab 1: Live status -->
     <section id="tab-telemetry" class="tab-pane active">
       <div class="card">
         <div class="card-head">
-          <span class="card-title">Memory Allocation</span>
+          <span class="card-title">Memory</span>
           <button id="btn-refresh" class="btn-sm">Refresh</button>
+        </div>
+        <div class="metric-hero">
+          <span class="metric-label">Physical Available</span>
+          <span id="val-mem-avail" class="metric-hero-val">-- MB</span>
         </div>
         <div class="metrics-grid">
           <div class="metric-cell">
@@ -40,11 +48,11 @@
             <span id="val-mem-free" class="metric-val">-- MB</span>
           </div>
           <div class="metric-cell">
-            <span class="metric-label">Physical Avail</span>
-            <span id="val-mem-avail" class="metric-val">-- MB</span>
+            <span class="metric-label">Swap Total</span>
+            <span id="val-zram-total" class="metric-val">-- MB</span>
           </div>
           <div class="metric-cell">
-            <span class="metric-label">ZRAM Used</span>
+            <span class="metric-label">ZRAM In Use</span>
             <span id="val-zram-used" class="metric-val">-- MB</span>
           </div>
           <div class="metric-cell">
@@ -52,17 +60,13 @@
             <span id="val-zram-phys" class="metric-val">-- MB</span>
           </div>
           <div class="metric-cell">
-            <span class="metric-label">Compression Ratio</span>
-            <span id="val-zram-ratio" class="metric-val">-- x</span>
-          </div>
-          <div class="metric-cell">
-            <span class="metric-label">Total Swap</span>
-            <span id="val-zram-total" class="metric-val">-- MB</span>
+            <span class="metric-label">Compression</span>
+            <span id="val-zram-ratio" class="metric-val">--</span>
           </div>
         </div>
         <div class="progress-wrap">
           <div class="progress-label">
-            <span>Swap Utilization</span>
+            <span>Swap utilization</span>
             <span id="val-swap-pct">0%</span>
           </div>
           <div class="progress-bar">
@@ -71,13 +75,13 @@
         </div>
         <div class="card-actions">
           <button id="btn-compact" class="btn">Compact ZRAM</button>
-          <button id="btn-trim" class="btn">Trim Inactive Apps</button>
+          <button id="btn-trim" class="btn">Kill Cached Apps</button>
         </div>
       </div>
 
       <div class="card">
         <div class="card-head">
-          <span class="card-title">Power & Bypass Charging</span>
+          <span class="card-title">Power</span>
         </div>
         <div class="metrics-grid">
           <div class="metric-cell">
@@ -85,22 +89,22 @@
             <span id="val-pwr-status" class="metric-val">--</span>
           </div>
           <div class="metric-cell">
-            <span class="metric-label">Protocol</span>
+            <span class="metric-label">Input</span>
             <span id="val-pwr-type" class="metric-val">--</span>
           </div>
           <div class="metric-cell">
             <span class="metric-label">Current</span>
-            <span id="val-pwr-current" class="metric-val">-- mA</span>
+            <span id="val-pwr-current" class="metric-val">--</span>
           </div>
           <div class="metric-cell">
-            <span class="metric-label">Battery Voltage</span>
-            <span id="val-pwr-voltage" class="metric-val">-- V</span>
+            <span class="metric-label">Voltage</span>
+            <span id="val-pwr-voltage" class="metric-val">--</span>
           </div>
         </div>
         <div class="control-row">
           <div class="control-info">
-            <span class="control-name">Manual Bypass Charging</span>
-            <span class="control-desc">Power motherboard directly; disconnect battery charge input to eliminate heat while gaming.</span>
+            <span class="control-name">Bypass charging</span>
+            <span class="control-desc">Stops battery charging while on USB. Uses the control node this kernel exposes, detected at runtime.</span>
           </div>
           <label class="switch">
             <input type="checkbox" id="chk-bypass-master">
@@ -109,16 +113,19 @@
         </div>
         <div class="control-row">
           <div class="control-info">
-            <span class="control-name">Thermal Guard Protection</span>
-            <span class="control-desc">Universal fail-safe: cuts charge current if battery temp reaches 52°C, auto-resumes once cooled below 46°C.</span>
+            <span class="control-name">Thermal guard</span>
+            <span class="control-desc">Opt-in. Stops charging when battery temp crosses the limit (default 52°C), resumes 3°C below it.</span>
           </div>
-          <span class="stat-badge" style="color: var(--status-ok)">Active</span>
+          <label class="switch">
+            <input type="checkbox" id="chk-thermal-guard">
+            <span class="slider"></span>
+          </label>
         </div>
-        <div class="setting-group" style="padding-top: 10px; border-top: 1px solid var(--border-subtle);">
-          <label class="setting-label">Battery Charge Limit (Auto Cut-off)</label>
-          <span class="setting-hint">Stops charging at target capacity and transitions to AC power to preserve cell lifespan.</span>
+        <div class="setting-group">
+          <label class="setting-label">Charge limit</label>
+          <span class="setting-hint">Stops charging at the selected capacity, resumes when it drops 3% below.</span>
           <div class="option-pill-group" id="group-charge-limit">
-            <button class="pill-btn active" data-val="100">100% (Off)</button>
+            <button class="pill-btn active" data-val="100">100%</button>
             <button class="pill-btn" data-val="90">90%</button>
             <button class="pill-btn" data-val="85">85%</button>
             <button class="pill-btn" data-val="80">80%</button>
@@ -127,75 +134,75 @@
       </div>
     </section>
 
-    <!-- Tab 2: App Priority & Game Focus -->
+    <!-- Tab 2: Per-app rules -->
     <section id="tab-apps" class="tab-pane">
       <div class="card">
         <div class="card-head">
-          <span class="card-title">Per-App Memory & Power Policy</span>
+          <span class="card-title">Per-app rules</span>
         </div>
         <p class="section-desc">
-          Pin critical games to physical RAM to avoid reload during chat switches, or enable auto-bypass charging during active sessions.
+          Game mode stops charging while the app is in the foreground. Force swap marks an app as first candidate for LMKD pruning.
         </p>
         <div class="search-box">
-          <input type="text" id="app-search" placeholder="Filter packages (e.g. mobilelegends, chrome)...">
+          <input type="text" id="app-search" placeholder="Filter packages...">
         </div>
         <div id="app-list-container" class="app-list">
-          <div class="empty-state">Loading installed user applications...</div>
+          <div class="empty-state">Scanning installed packages...</div>
         </div>
         <div class="card-actions">
-          <button id="btn-save-apps" class="btn btn-primary">Save App Rules</button>
+          <button id="btn-save-apps" class="btn btn-primary">Save rules</button>
         </div>
       </div>
     </section>
 
-    <!-- Tab 3: Kernel & RAM Tunables -->
+    <!-- Tab 3: Tunables -->
     <section id="tab-tunables" class="tab-pane">
       <div class="card">
         <div class="card-head">
-          <span class="card-title">Kernel Memory Architecture</span>
+          <span class="card-title">Kernel &amp; RAM</span>
         </div>
         <div class="setting-group">
-          <label class="setting-label">VM Swappiness</label>
-          <span class="setting-hint">Target eagerness to page inactive anonymous memory into ZRAM.</span>
+          <label class="setting-label">VM swappiness</label>
+          <span class="setting-hint">How eagerly inactive memory pages move to ZRAM.</span>
           <div class="option-pill-group" id="group-swappiness">
-            <button class="pill-btn" data-val="60">60 (Conservative)</button>
-            <button class="pill-btn active" data-val="100">100 (Balanced)</button>
-            <button class="pill-btn" data-val="140">140 (Aggressive)</button>
+            <button class="pill-btn" data-val="60">60</button>
+            <button class="pill-btn active" data-val="100">100</button>
+            <button class="pill-btn" data-val="140">140</button>
           </div>
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">ZRAM Disk Size</label>
-          <span class="setting-hint">Virtual capacity allocated for uncompressed swap data. Requires swap reset.</span>
+          <label class="setting-label">ZRAM disk size</label>
+          <span class="setting-hint">Virtual swap capacity. Changing it resets the ZRAM device; swap goes offline for a moment.</span>
           <div class="option-pill-group" id="group-zram-size">
             <button class="pill-btn" data-val="2500M">2.5 GB</button>
-            <button class="pill-btn" data-val="3187M">3.1 GB (Stock)</button>
+            <button class="pill-btn" data-val="3187M">3.1 GB</button>
             <button class="pill-btn active" data-val="4000M">4.0 GB</button>
             <button class="pill-btn" data-val="4500M">4.5 GB</button>
           </div>
         </div>
 
         <div class="setting-group">
-          <label class="setting-label">LMKD Cached App Headroom</label>
-          <span class="setting-hint">Maximum dormant background processes before pruning.</span>
+          <label class="setting-label">Cached app limit</label>
+          <span class="setting-hint">Max background processes before LMKD pruning starts.</span>
           <div class="option-pill-group" id="group-bg-limit">
-            <button class="pill-btn" data-val="24">24 Apps</button>
-            <button class="pill-btn active" data-val="32">32 Apps</button>
-            <button class="pill-btn" data-val="48">48 Apps</button>
+            <button class="pill-btn" data-val="24">24</button>
+            <button class="pill-btn active" data-val="32">32</button>
+            <button class="pill-btn" data-val="48">48</button>
           </div>
         </div>
 
         <div class="card-actions">
-          <button id="btn-apply-tunables" class="btn btn-primary">Apply Kernel Tunables</button>
+          <button id="btn-apply-tunables" class="btn btn-primary">Apply tunables</button>
         </div>
       </div>
 
       <div class="card">
         <div class="card-head">
-          <span class="card-title">Display Scale & GPU Performance</span>
+          <span class="card-title">Display scale</span>
         </div>
         <p class="section-desc">
-          Downscale render resolution proportionally with native DPI to reduce Adreno 610 pixel workload, boost game FPS, and lower heat.
+          Scales render resolution and DPI together. Lower pixel count means less Adreno 610 workload and less heat.
         </p>
         <div class="metrics-grid">
           <div class="metric-cell">
@@ -204,29 +211,33 @@
           </div>
           <div class="metric-cell">
             <span class="metric-label">Density</span>
-            <span id="val-display-dpi" class="metric-val">-- dpi</span>
+            <span id="val-display-dpi" class="metric-val">--</span>
           </div>
         </div>
         <div class="setting-group">
-          <label class="setting-label">Scale Factor</label>
+          <label class="setting-label">Scale factor</label>
           <div class="option-pill-group" id="group-display-scale">
-            <button class="pill-btn active" data-scale="1.0">Native 100%</button>
-            <button class="pill-btn" data-scale="0.9">-10% Scale</button>
-            <button class="pill-btn" data-scale="0.85">-15% Scale</button>
+            <button class="pill-btn active" data-scale="1.0">100%</button>
+            <button class="pill-btn" data-scale="0.9">90%</button>
+            <button class="pill-btn" data-scale="0.85">85%</button>
           </div>
         </div>
         <div class="card-actions">
-          <button id="btn-apply-display" class="btn btn-primary">Apply Scale</button>
-          <button id="btn-reset-display" class="btn">Reset to Native</button>
+          <button id="btn-apply-display" class="btn btn-primary">Apply scale</button>
+          <button id="btn-reset-display" class="btn">Reset</button>
         </div>
       </div>
     </section>
   </main>
 
   <footer class="app-footer">
-    <span id="footer-log">Connected to Kairos Root Interface</span>
+    <span id="footer-log">Root bridge connecting...</span>
   </footer>
 
-  <script src="app.js"></script>
+  <nav class="nav-bar">
+    <button class="nav-btn active" data-tab="telemetry">Status</button>
+    <button class="nav-btn" data-tab="apps">Apps</button>
+    <button class="nav-btn" data-tab="tunables">Kernel</button>
+  </nav>
 </body>
 </html>

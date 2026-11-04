@@ -157,39 +157,33 @@ def _blob(name):
     data = base64.b64decode(SINOFAS_B64[name])
     return "[" + " ".join("%02x" % x for x in data) + "]"
 
-SE1_LINES = [
-    "&qupv3_se1_i2c {"
-    "	sh366101@55 {"
-    "		compatible = \"sh,sh366101\";"
-    "		reg = <0x55>;"
-    "		interrupt-parent = <&tlmm>;"
-    "		interrupts = <34 2>;"
-    "		qcom,irq-gpio = <&tlmm 34 0>;"
-    "		sm,en_temp_ex;"
-    "		sm,en_batt_det;"
-    "		sm,shutdown-delay-enable;"
-    ""
-    "		battery_params {"
-    "			iap_twiadr = [aa];"
-    "			sinofs_afi01_data = " + _blob("sinofs_afi01_data") + ";"
-    "			sinofs_afi02_data = " + _blob("sinofs_afi02_data") + ";"
-    "			sinofs_afi03_data = " + _blob("sinofs_afi03_data") + ";"
-    "			sinofs_afi04_data = " + _blob("sinofs_afi04_data") + ";"
-    "			sinofs_image_data = " + _blob("sinofs_image_data") + ";"
-    "			sinofs_ts_data = " + _blob("sinofs_ts_data") + ";"
-    "			version_afi_01 = <0x5a4d>;"
-    "			version_afi_02 = <0x1e50>;"
-    "			version_afi_03 = <0x731b>;"
-    "			version_afi_04 = <0x1e50>;"
-    "			version_date = <0x22010017>;"
-    "			version_main = <0x1>;"
-    "			version_ts = <0x2>;"
-    ""
-    "		}"
-    "	}"
-    "};"]
+SE1_BLOCK = """&qupv3_se1_i2c {
+	sh366101@55 {
+		compatible = "sh,sh366101";
+		reg = <0x55>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <34 2>;
+		qcom,irq-gpio = <&tlmm 34 0>;
+		sm,en_temp_ex;
+		sm,en_batt_det;
+		sm,shutdown-delay-enable;
 
-SE1_BLOCK = "\n".join(SE1_LINES) + "\n"
+		battery_params {
+			iap_twiadr = [aa];
+"""
+for _n in sorted(SINOFAS_B64):
+    SE1_BLOCK += "			%s = %s;" % (_n, _blob(_n)) + chr(10)
+SE1_BLOCK += """			version_afi_01 = <0x5a4d>;
+			version_afi_02 = <0x1e50>;
+			version_afi_03 = <0x731b>;
+			version_afi_04 = <0x1e50>;
+			version_date = <0x22010017>;
+			version_main = <0x1>;
+			version_ts = <0x2>;
+		};
+	};
+};
+"""
 
 USB_ANCHOR = "\n};\n\n&usb0 {\n\t/delete-property/ extcon;"
 USB_NEW = "\n" + SMB_NODE + "\n};\n\n&usb0 {\n\t/delete-property/ extcon;"

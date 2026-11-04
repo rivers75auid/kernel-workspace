@@ -148,6 +148,15 @@ jobs:
           echo "===> Enabling Novatek touchscreen ESD recovery & edge ghost-touch fix..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-touch.py"
 
+          echo "===> Enabling SMB1351 HVDCP_3 (Quick Charge 3.0) notification..."
+          python3 "$GITHUB_WORKSPACE/scripts/patch-charger.py"
+
+          echo "===> Porting fog charger (smb1351) + fuel gauge (sh366101) DT nodes..."
+          python3 "$GITHUB_WORKSPACE/scripts/fog-charger-dt.py"
+
+          echo "===> Fixing first-plug QC misclassification (delayed APSD rerun)..."
+          python3 "$GITHUB_WORKSPACE/scripts/patch-charger-apsd.py"
+
           echo "===> Baking Native In-Kernel VM, ZRAM & Schedutil Defaults (No Scripts / Rootless)..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-vm-sched.py"
 
@@ -284,6 +293,20 @@ jobs:
           retention-days: 14
           compression-level: 6
 
+      - name: Download matching BakaSU Manager APK
+        run: |
+          KSU_REF="${{ github.event.inputs.KSU_REF || 'v4.2.0-rc3' }}"
+          mkdir -p "$GITHUB_WORKSPACE/output"
+          APK_URL=$(curl -s "https://api.github.com/repos/Baka-SU/BakaSU/releases/tags/${KSU_REF}" \
+            | grep -o 'https://[^"]*arm64-v8a-release\.apk' | head -1)
+          if [ -n "$APK_URL" ]; then
+            echo "===> Downloading BakaSU manager for ${KSU_REF}: $APK_URL"
+            curl -sL -o "$GITHUB_WORKSPACE/output/bakasu-manager.apk" "$APK_URL"
+            ls -la "$GITHUB_WORKSPACE/output/bakasu-manager.apk"
+          else
+            echo "===> No manager APK asset found for ${KSU_REF}, skipping"
+          fi
+
       - name: Send Telegram Notification & File
         if: always()
         env:
@@ -320,6 +343,15 @@ jobs:
               curl -s -F "chat_id=${TELEGRAM_CHAT_ID}" \
                 -F "document=@${MODULE_ZIP}" \
                 -F "caption=📦 Built-in Memory Management Module" \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
+            fi
+
+            MANAGER_APK="$GITHUB_WORKSPACE/output/bakasu-manager.apk"
+            if [ -f "$MANAGER_APK" ]; then
+              echo "===> Uploading BakaSU Manager to Telegram..."
+              curl -s -F "chat_id=${TELEGRAM_CHAT_ID}" \
+                -F "document=@${MANAGER_APK}" \
+                -F "caption=📱 BakaSU Manager matching the pinned kernel integration" \
                 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
             fi
           else

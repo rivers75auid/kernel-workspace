@@ -711,6 +711,7 @@ with open('security/selinux/selinuxfs.c', 'r') as f:
     c = f.read()
 c = c.replace('static const struct file_operations sel_handle_status_ops = {', 'const struct file_operations sel_handle_status_ops = {', 1)
 c = c.replace('static const struct file_operations transaction_ops = {', 'const struct file_operations transaction_ops = {', 1)
+c = c.replace('static ssize_t (*const write_op[])', 'ssize_t (*const write_op[])', 1)
 with open('security/selinux/selinuxfs.c', 'w') as f:
     f.write(c)
 print('[+] security/selinux/selinuxfs.c un-static OK!')

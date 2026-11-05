@@ -216,6 +216,35 @@ def patch_focaltech():
             with open(gest_c, "w", encoding="utf-8", newline="\n") as f:
                 f.write(content)
 
+        # 3. Define g_touchscreen_usb_pulgin in focaltech_core.c
+        core_c = os.path.join(d, "focaltech_core.c")
+        if os.path.exists(core_c):
+            with open(core_c, "r", encoding="utf-8", errors="ignore") as f:
+                core_data = f.read()
+            if "extern touchscreen_usb_plugin_data_t g_touchscreen_usb_pulgin;" in core_data:
+                core_data = core_data.replace(
+                    "extern touchscreen_usb_plugin_data_t g_touchscreen_usb_pulgin;",
+                    "touchscreen_usb_plugin_data_t g_touchscreen_usb_pulgin;",
+                    1
+                )
+                with open(core_c, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(core_data)
+                print(f"[+] Instantiated g_touchscreen_usb_pulgin in {core_c}")
+
+def patch_dsi_display():
+    kernel_root = os.getcwd()
+    f_path = os.path.join(kernel_root, "techpack/display/msm/dsi/dsi_display.c")
+    if os.path.exists(f_path):
+        with open(f_path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+        target = "set_lct_tp_lockdown_info_callback(lct_tp_lockdown_info_callback);"
+        repl = "/* set_lct_tp_lockdown_info_callback(lct_tp_lockdown_info_callback); - stubbed */"
+        if target in content:
+            content = content.replace(target, repl, 1)
+            with open(f_path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(content)
+            print("[+] Stubbed set_lct_tp_lockdown_info_callback in dsi_display.c")
+
 def disable_conflicting_touch():
     kernel_root = os.getcwd()
     makefile = os.path.join(kernel_root, "drivers/input/touchscreen/Makefile")
@@ -233,3 +262,4 @@ if __name__ == "__main__":
     patch_nt36xxx()
     patch_lct_gesture()
     patch_focaltech()
+    patch_dsi_display()

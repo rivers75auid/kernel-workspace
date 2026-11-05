@@ -145,13 +145,11 @@ jobs:
           echo "CONFIG_LOCALVERSION=\"-${KNAME}\"" >> "$DEFCONFIG_PATH"
 
           echo "===> Disabling conflicting I2C touchscreen drivers for Redmi 10C (fog SPI)..."
-          sed -i '/CONFIG_TOUCHSCREEN_NT36XXX/d' "$DEFCONFIG_PATH" arch/arm64/configs/vendor/xiaomi/fog.config || true
-          sed -i '/CONFIG_TOUCHSCREEN_FTS=/d' "$DEFCONFIG_PATH" arch/arm64/configs/vendor/xiaomi/fog.config || true
-          sed -i '/CONFIG_TOUCHSCREEN_FTS_DIRECTORY/d' "$DEFCONFIG_PATH" arch/arm64/configs/vendor/xiaomi/fog.config || true
+          sed -i '/CONFIG_TOUCHSCREEN_NT36XXX/d' "$DEFCONFIG_PATH" || true
+          sed -i '/CONFIG_TOUCHSCREEN_FTS=/d' "$DEFCONFIG_PATH" || true
+          sed -i '/CONFIG_TOUCHSCREEN_FTS_DIRECTORY/d' "$DEFCONFIG_PATH" || true
           echo "# CONFIG_TOUCHSCREEN_NT36XXX is not set" >> "$DEFCONFIG_PATH"
           echo "# CONFIG_TOUCHSCREEN_FTS is not set" >> "$DEFCONFIG_PATH"
-          echo "# CONFIG_TOUCHSCREEN_NT36XXX is not set" >> arch/arm64/configs/vendor/xiaomi/fog.config
-          echo "# CONFIG_TOUCHSCREEN_FTS is not set" >> arch/arm64/configs/vendor/xiaomi/fog.config
 
           if grep -q "yamltree" scripts/dtc/Makefile 2>/dev/null; then
             echo "===> Fixing yamltree.o duplicate in scripts/dtc/Makefile..."

@@ -6,7 +6,7 @@ cd "$GITHUB_WORKSPACE/kernel_source"
 ENABLE_KSU="${1:-true}"
 ENABLE_SUS="${2:-true}"
 SUS_VER="${3:-v2.3.0}"
-DEFCONFIG="${4:-vendor/fog-perf_defconfig}"
+DEFCONFIG="${4:-vendor/bengal-perf_defconfig vendor/xiaomi/fog.config}"
 KSU_REF="${5:-v4.2.0-rc3}"
 FIRST_DEFCONFIG=$(echo "$DEFCONFIG" | awk '{print $1}')
 DEFCONFIG_PATH="arch/arm64/configs/$FIRST_DEFCONFIG"

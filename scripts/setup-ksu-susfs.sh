@@ -730,6 +730,74 @@ print('[+] security/selinux/selinuxfs.c un-static OK!')
         echo "===> Menerapkan patch SUSFS ke kernel tree..."
         patch -p1 --forward < "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch" || echo "[WARN] Sebagian patch kernel mungkin sudah terpasang"
 
+        echo "===> Memperbaiki rejected hunks SuSFS di mount.h, sched.h, dan namespace.c..."
+        python3 -c "
+# 1. include/linux/mount.h
+with open('include/linux/mount.h', 'r') as f:
+    mh = f.read()
+if 'susfs_mnt_id_backup' not in mh:
+    mh = mh.replace('ANDROID_KABI_RESERVE(4);', '''#ifdef CONFIG_KSU_SUSFS
+	u64 susfs_mnt_id_backup;
+#endif
+	ANDROID_KABI_RESERVE(4);''', 1)
+    with open('include/linux/mount.h', 'w') as f:
+        f.write(mh)
+    print('[+] include/linux/mount.h patched for SuSFS!')
+
+# 2. include/linux/sched.h
+with open('include/linux/sched.h', 'r') as f:
+    sh = f.read()
+if 'susfs_last_fake_mnt_id' not in sh:
+    sh = sh.replace('ANDROID_KABI_RESERVE(8);', '''#ifdef CONFIG_KSU_SUSFS
+	u64 susfs_task_state;
+	u64 susfs_last_fake_mnt_id;
+#endif
+	ANDROID_KABI_RESERVE(8);''', 1)
+    with open('include/linux/sched.h', 'w') as f:
+        f.write(sh)
+    print('[+] include/linux/sched.h patched for SuSFS!')
+
+# 3. fs/namespace.c
+with open('fs/namespace.c', 'r') as f:
+    ns = f.read()
+if 'susfs_mnt_id_ida' not in ns:
+    target_ns = '#include \"internal.h\"\n'
+    repl_ns = '''#include \"internal.h\"
+
+#if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_TRY_UMOUNT)
+#include <linux/susfs_def.h>
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+extern bool susfs_is_current_ksu_domain(void);
+extern bool susfs_is_current_zygote_domain(void);
+
+static DEFINE_IDA(susfs_mnt_id_ida);
+static DEFINE_IDA(susfs_mnt_group_ida);
+
+#define CL_ZYGOTE_COPY_MNT_NS BIT(24) /* used by copy_mnt_ns() */
+#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
+extern void susfs_auto_add_sus_ksu_default_mount(const char __user *to_pathname);
+bool susfs_is_auto_add_sus_ksu_default_mount_enabled = true;
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
+extern int susfs_auto_add_sus_bind_mount(const char *pathname, struct path *path_target);
+bool susfs_is_auto_add_sus_bind_mount_enabled = true;
+#endif
+#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
+extern void susfs_auto_add_try_umount_for_bind_mount(struct path *path);
+bool susfs_is_auto_add_try_umount_for_bind_mount_enabled = true;
+#endif
+'''
+    ns = ns.replace(target_ns, repl_ns, 1)
+    with open('fs/namespace.c', 'w') as f:
+        f.write(ns)
+    print('[+] fs/namespace.c patched for SuSFS!')
+"
+
         echo "===> Menambahkan susfs_extra_works dan sdcard monitor ke fs/susfs.c..."
         python3 -c "
 with open('fs/susfs.c', 'r') as f:

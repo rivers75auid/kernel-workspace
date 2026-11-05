@@ -99,22 +99,6 @@ def patch_wlan_hdd_main():
     print(f"[+] Successfully patched on-demand WLAN loading in {path}!")
     return True
 
-def patch_qcacld_config():
-    path = "drivers/staging/qcacld-3.0/configs/default_defconfig"
-    if not os.path.exists(path):
-        print(f"[-] {path} not found, skipping.")
-        return False
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        c = f.read()
-
-    c = c.replace("CONFIG_160MHZ_SUPPORT := y", "CONFIG_160MHZ_SUPPORT := n")
-    c = c.replace("CONFIG_SUPPORT_11AX := y", "CONFIG_SUPPORT_11AX := n")
-
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(c)
-    print(f"[+] Successfully disabled 160MHz and 11ax in {path}!")
-    return True
-
 def patch_ce_and_htt():
     # 1. ce_main.c
     p1 = "drivers/staging/qca-wifi-host-cmn/hif/src/ce/ce_main.c"
@@ -141,5 +125,4 @@ def patch_ce_and_htt():
 
 if __name__ == "__main__":
     patch_wlan_hdd_main()
-    patch_qcacld_config()
     patch_ce_and_htt()

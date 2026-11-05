@@ -536,6 +536,17 @@ int ksu_handle_susfs_cmd(unsigned int cmd, void __user **arg)
 PYEOF
     python3 patch_dispatch.py && rm -f patch_dispatch.py
 
+    echo "===> Menamai ulang hook execve gaya backslashxx ke ReSukiSU (cirno-pin)..."
+    python3 -c "
+with open('fs/exec.c', 'r') as f:
+    c = f.read()
+if 'ksu_handle_execve_sucompat' in c:
+    c = c.replace('ksu_handle_execve_sucompat', 'ksu_handle_execveat_sucompat')
+    with open('fs/exec.c', 'w') as f:
+        f.write(c)
+    print('[+] fs/exec.c: ksu_handle_execve_sucompat -> ksu_handle_execveat_sucompat')
+"
+
     echo "===> Menerapkan 8 Manual Kernel Hooks untuk ReSukiSU..."
     python3 -c "
 # 1. kernel/sys.c

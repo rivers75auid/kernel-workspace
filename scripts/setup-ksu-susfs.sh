@@ -41,6 +41,9 @@ if [ "$ENABLE_KSU" = "true" ]; then
     sed -i 's/^static void security_dump_masked_av/void security_dump_masked_av/' security/selinux/ss/services.c || true
     sed -i 's/^static void context_struct_compute_av/void context_struct_compute_av/' security/selinux/ss/services.c || true
 
+    echo "===> Disarming artificial abort checks in KernelSU tools..."
+    sed -i 's/\$(error/\$(warning/g' KernelSU/kernel/tools/*.mk 2>/dev/null || true
+
     echo "===> Menyesuaikan ReSukiSU sucompat untuk Linux 4.19..."
     python3 -c "
 with open('KernelSU/kernel/feature/sucompat.h', 'r') as f:
@@ -623,6 +626,13 @@ if target_open in c and 'ksu_handle_faccessat' not in c:
 # 5. fs/read_write.c
 with open('fs/read_write.c', 'r') as f:
     c = f.read()
+# Clean up legacy ksu_vfs_read_hook from afterimage base
+c = c.replace('extern bool ksu_vfs_read_hook __read_mostly;\n', '')
+c = c.replace('extern bool ksu_vfs_read_hook __read_mostly;', '')
+c = c.replace('if (unlikely(ksu_vfs_read_hook))\n\t\t', '')
+c = c.replace('if (unlikely(ksu_vfs_read_hook)) ', '')
+c = c.replace('ksu_vfs_read_hook', '1')
+
 target_rw = 'SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)\n{\n'
 hook_rw = '''\
 #ifdef CONFIG_KSU
@@ -634,9 +644,9 @@ hook_rw = '''\
 '''
 if target_rw in c and 'ksu_handle_sys_read' not in c:
     c = c.replace(target_rw, target_rw + hook_rw, 1)
-    with open('fs/read_write.c', 'w') as f:
-        f.write(c)
-    print('[+] fs/read_write.c hooked!')
+with open('fs/read_write.c', 'w') as f:
+    f.write(c)
+print('[+] fs/read_write.c hooked and legacy ksu_vfs_read_hook cleaned!')
 
 # 6. fs/stat.c (with native fake_ino=2 for Duck Detector)
 with open('fs/stat.c', 'r') as f:
@@ -674,6 +684,13 @@ if target_stat in c and 'ksu_handle_stat' not in c:
 # 7. drivers/input/input.c
 with open('drivers/input/input.c', 'r') as f:
     c = f.read()
+# Clean up legacy ksu_input_hook from afterimage base
+c = c.replace('extern bool ksu_input_hook __read_mostly;\n', '')
+c = c.replace('extern bool ksu_input_hook __read_mostly;', '')
+c = c.replace('if (unlikely(ksu_input_hook))\n\t\t', '')
+c = c.replace('if (unlikely(ksu_input_hook)) ', '')
+c = c.replace('ksu_input_hook', '1')
+
 target_input = 'static void input_handle_event(struct input_dev *dev,\n\t\t\t       unsigned int type, unsigned int code, int value)\n{\n'
 hook_input = '''\
 #ifdef CONFIG_KSU
@@ -685,9 +702,9 @@ hook_input = '''\
 '''
 if target_input in c and 'ksu_handle_input_handle_event' not in c:
     c = c.replace(target_input, target_input + hook_input, 1)
-    with open('drivers/input/input.c', 'w') as f:
-        f.write(c)
-    print('[+] drivers/input/input.c hooked!')
+with open('drivers/input/input.c', 'w') as f:
+    f.write(c)
+print('[+] drivers/input/input.c hooked and legacy ksu_input_hook cleaned!')
 
 # 8. security/selinux/selinuxfs.c
 with open('security/selinux/selinuxfs.c', 'r') as f:

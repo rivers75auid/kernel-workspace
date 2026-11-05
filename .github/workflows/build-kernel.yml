@@ -212,7 +212,9 @@ jobs:
             --enable ENERGY_MODEL \
             --disable DEFAULT_CFQ \
             --enable DEFAULT_BBR \
-            --disable DEFAULT_WESTWOOD
+            --disable DEFAULT_WESTWOOD \
+            --enable KALLSYMS \
+            --enable KALLSYMS_ALL
 
           if grep -q "CONFIG_IOSCHED_ANXIETY=y" out/.config 2>/dev/null; then
             ./scripts/config --file out/.config --enable DEFAULT_ANXIETY

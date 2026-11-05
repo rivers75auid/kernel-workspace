@@ -37,6 +37,10 @@ if [ "$ENABLE_KSU" = "true" ]; then
     grep -q "kernelsu" drivers/Makefile || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> drivers/Makefile
     grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
+    echo "===> Un-static SELinux functions for ReSukiSU/BakaSU..."
+    sed -i 's/^static void security_dump_masked_av/void security_dump_masked_av/' security/selinux/ss/services.c || true
+    sed -i 's/^static void context_struct_compute_av/void context_struct_compute_av/' security/selinux/ss/services.c || true
+
     echo "===> Menyesuaikan ReSukiSU sucompat untuk Linux 4.19..."
     python3 -c "
 with open('KernelSU/kernel/feature/sucompat.h', 'r') as f:

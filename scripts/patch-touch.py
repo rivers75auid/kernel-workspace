@@ -193,8 +193,8 @@ def patch_focaltech():
                     "}\n"
                     "static ssize_t fts_double_tap_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {\n"
                     "\tunsigned int input = 0;\n"
-                    '\tif (sscanf(buf, "%u", &input) == 1)\n'
-                    "\t\tlct_fts_tp_gesture_callback(input > 0);\n"
+                    '\tif (sscanf(buf, "%u", &input) == 1 && fts_data)\n'
+                    "\t\tfts_data->gesture_mode = (input > 0) ? 1 : 0;\n"
                     "\treturn count;\n"
                     "}\n"
                     "static struct tp_common_ops fts_double_tap_ops = {\n"

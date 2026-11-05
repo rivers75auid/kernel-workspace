@@ -10,30 +10,40 @@ done
 # Wait for vendor post-boot scripts to finish
 sleep 3
 
-LOG="/cache/kairos_ram_management.log"
+LOG="/data/adb/kairos_ram_management.log"
 echo "=== Kairos RAM Management Started: $(date) ===" > $LOG
 
-# 1. LMKD Shield (Protect active apps, prune bottom cached apps when swap low)
-for prop in \
-  "ro.lmk.lowmem_min_oom_score:850" \
-  "ro.lmk.kill_heaviest_task:false" \
-  "ro.lmk.swap_free_low_percentage:15" \
-  "ro.lmk.swap_is_low_kill_enable:1" \
-  "ro.lmk.swap_util_max:90" \
-  "ro.lmk.use_psi:true" \
-  "ro.lmk.use_minfree_levels:false" \
-  "ro.lmk.psi_partial_stall_ms:250" \
-  "ro.lmk.psi_complete_stall_ms:700" \
-  "ro.lmk.thrashing_limit:100" \
-  "ro.lmk.thrashing_limit_decay:10" \
-  "ro.sys.fw.bg_apps_limit:32"; do
-  key="${prop%%:*}"
-  val="${prop##*:}"
-  resetprop "$key" "$val"
-done
+CONFIG="/data/adb/kairos_config.json"
+if [ ! -f "$CONFIG" ]; then
+  cat << 'EOF' > "$CONFIG"
+{
+  "bypass_charging": false,
+  "auto_bypass_games": [],
+  "heavy_swap_apps": [],
+  "swappiness": 100,
+  "zram_size": "4000M",
+  "bg_limit": 32,
+  "thermal_guard": false,
+  "thermal_limit_c": 52,
+  "charge_limit": 100
+}
+EOF
+  chmod 644 "$CONFIG"
+fi
+
+cfg_num() {
+  tr -d '\n' < "$CONFIG" | sed -n "s/.*\"$1\": *\"\{0,1\}\([0-9]\{1,5\}M\{0,1\}\)\"\{0,1\}.*/\1/p"
+}
+SWAPPINESS=$(cfg_num swappiness); [ -z "$SWAPPINESS" ] && SWAPPINESS=100
+BG_LIMIT=$(cfg_num bg_limit); [ -z "$BG_LIMIT" ] && BG_LIMIT=32
+ZRAM_SIZE=$(cfg_num zram_size)
+
+# 1. LMKD thresholds live in system.prop: lmkd reads ro.lmk.* once at start,
+#    so resetprop here would only change getprop output, not lmkd behavior.
+resetprop ro.sys.fw.bg_apps_limit "$BG_LIMIT"
 
 # 2. Activity Manager & Phantom Process Killer Mitigation
-device_config put activity_manager max_cached_processes 32 2>/dev/null
+device_config put activity_manager max_cached_processes "$BG_LIMIT" 2>/dev/null
 device_config put activity_manager max_phantom_processes 32 2>/dev/null
 device_config put activity_manager use_compaction false 2>/dev/null
 device_config put activity_manager proactive_kills_enabled false 2>/dev/null
@@ -41,8 +51,22 @@ settings put global settings_enable_monitor_phantom_procs false 2>/dev/null
 
 # 3. Kernel VM Tunables Enforcement (Lock against ROM scripts)
 chmod 666 /proc/sys/vm/swappiness 2>/dev/null
-echo 100 > /proc/sys/vm/swappiness
+echo "$SWAPPINESS" > /proc/sys/vm/swappiness
 chmod 444 /proc/sys/vm/swappiness 2>/dev/null
+
+# Saved ZRAM size from the WebUI; swap is nearly empty this early, so the reset is cheap.
+if [ -n "$ZRAM_SIZE" ] && [ -e /sys/block/zram0/disksize ]; then
+  want=$(( ${ZRAM_SIZE%M} * 1048576 ))
+  have=$(cat /sys/block/zram0/disksize 2>/dev/null)
+  diff=$(( want - ${have:-0} )); [ "$diff" -lt 0 ] && diff=$(( -diff ))
+  if [ "$diff" -gt 50000000 ]; then
+    swapoff /dev/block/zram0 2>/dev/null
+    echo 1 > /sys/block/zram0/reset
+    echo "$ZRAM_SIZE" > /sys/block/zram0/disksize
+    mkswap /dev/block/zram0 >/dev/null 2>&1 && swapon /dev/block/zram0 -p -2 2>/dev/null
+    grep -q zram0 /proc/swaps && echo "ZRAM resized to $ZRAM_SIZE" >> $LOG || echo "ZRAM resize FAILED" >> $LOG
+  fi
+fi
 
 chmod 666 /proc/sys/vm/watermark_scale_factor 2>/dev/null
 echo 10 > /proc/sys/vm/watermark_scale_factor
@@ -72,23 +96,6 @@ fi
 echo "=== Kairos RAM Management Applied Successfully ===" >> $LOG
 
 # 6. Kairos Dynamic Background Policy Daemon
-CONFIG="/data/adb/kairos_config.json"
-if [ ! -f "$CONFIG" ]; then
-  cat << 'EOF' > "$CONFIG"
-{
-  "bypass_charging": false,
-  "auto_bypass_games": [],
-  "heavy_swap_apps": [],
-  "swappiness": 100,
-  "zram_size": "4000M",
-  "bg_limit": 32,
-  "thermal_guard": false,
-  "thermal_limit_c": 52,
-  "charge_limit": 100
-}
-EOF
-  chmod 644 "$CONFIG"
-fi
 
 # Charging control node: smblite exposes no charging_enabled; fall back to input_suspend
 CHARGE_NODE=""
@@ -149,10 +156,10 @@ fi
       cap_cut=0
     fi
 
-    # 3. Game Mode: match only inside the auto_bypass_games array
+    # 3. Game Mode: only matters while plugged in, so skip the costly dumpsys on battery
     is_game=0
     games_block=$(printf '%s' "$config_flat" | sed -n 's/.*"auto_bypass_games": *\[\([^]]*\)\].*/\1/p')
-    if [ -n "$games_block" ]; then
+    if [ -n "$games_block" ] && [ -n "$ac_status" ] && [ "$ac_status" != "Discharging" ]; then
       curr_pkg=$(dumpsys window 2>/dev/null | grep -m 1 "mFocusedApp" | grep -o "u0 [^/]*" | cut -d" " -f2)
       if [ -n "$curr_pkg" ] && printf '%s\n' "$games_block" | grep -q "\"$curr_pkg\""; then
         is_game=1

@@ -7,6 +7,7 @@
         content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';">
   <title>Kairos Engine</title>
   <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
 </head>
 <body>
   <header class="app-header">
@@ -21,7 +22,7 @@
       </div>
       <div class="stat-cell">
         <span id="header-charge" class="stat-num">--</span>
-        <span class="stat-label">Net</span>
+        <span class="stat-label">Power</span>
       </div>
       <div class="stat-cell">
         <span id="header-batt" class="stat-num">--</span>
@@ -104,7 +105,7 @@
         <div class="control-row">
           <div class="control-info">
             <span class="control-name">Bypass charging</span>
-            <span class="control-desc">Stops battery charging while on USB. Uses the control node this kernel exposes, detected at runtime.</span>
+            <span class="control-desc">Stops battery charging while on USB. Charge limit, thermal guard and game mode can also pause charging; State shows the real result.</span>
           </div>
           <label class="switch">
             <input type="checkbox" id="chk-bypass-master">

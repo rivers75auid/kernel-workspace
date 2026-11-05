@@ -14,11 +14,11 @@ on:
       KERNEL_BRANCH:
         description: 'Kernel Source Branch'
         required: true
-        default: 'fog'
+        default: 'afterimage'
       DEFCONFIG:
         description: 'Defconfig name'
         required: true
-        default: 'vendor/fog-perf_defconfig'
+        default: 'vendor/bengal-perf_defconfig vendor/xiaomi/fog.config'
       ENABLE_RESUKISU:
         description: 'Integrate ReSukiSU'
         required: true
@@ -108,7 +108,7 @@ jobs:
           REPO="${{ github.event.inputs.KERNEL_REPO }}"
           [ -z "$REPO" ] && REPO="alternoegraha/kernel_xiaomi_sm6225"
           BRANCH="${{ github.event.inputs.KERNEL_BRANCH }}"
-          [ -z "$BRANCH" ] && BRANCH="fog"
+          [ -z "$BRANCH" ] && BRANCH="afterimage"
 
           echo "===> Cloning Canonical Kernel Source from $REPO ($BRANCH)..."
           git clone --depth=1 "https://github.com/$REPO.git" -b "$BRANCH" "$GITHUB_WORKSPACE/kernel_source"
@@ -120,7 +120,7 @@ jobs:
             "${{ github.event.inputs.ENABLE_RESUKISU || 'true' }}" \
             "${{ github.event.inputs.ENABLE_SUSFS || 'true' }}" \
             "${{ github.event.inputs.SUSFS_VERSION_TAG || 'v2.3.0' }}" \
-            "${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}" \
+            "${{ github.event.inputs.DEFCONFIG || 'vendor/bengal-perf_defconfig vendor/xiaomi/fog.config' }}" \
             "${{ github.event.inputs.KSU_REF || '516d3e87fbc986ccefdde2c2765f1700612441a9' }}"
 
       - name: Apply Custom Kernel Name & Potato Suite Optimizations
@@ -132,8 +132,9 @@ jobs:
           [ -z "$KNAME" ] && KNAME="Kairos"
 
           DEFCONFIG="${{ github.event.inputs.DEFCONFIG }}"
-          [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/fog-perf_defconfig"
-          DEFCONFIG_PATH="arch/arm64/configs/$DEFCONFIG"
+          [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/bengal-perf_defconfig vendor/xiaomi/fog.config"
+          FIRST_DEFCONFIG=$(echo "$DEFCONFIG" | awk '{print $1}')
+          DEFCONFIG_PATH="arch/arm64/configs/$FIRST_DEFCONFIG"
 
           echo "===> Setting Kernel Name to: $KNAME..."
           sed -i '/CONFIG_LOCALVERSION/d' "$DEFCONFIG_PATH"
@@ -180,7 +181,7 @@ jobs:
         run: |
           cd "$GITHUB_WORKSPACE/kernel_source"
           DEFCONFIG="${{ github.event.inputs.DEFCONFIG }}"
-          [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/fog-perf_defconfig"
+          [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/bengal-perf_defconfig vendor/xiaomi/fog.config"
           KNAME="${{ github.event.inputs.KERNEL_NAME }}"
           [ -z "$KNAME" ] && KNAME="Kairos"
 
@@ -196,7 +197,9 @@ jobs:
 
           mkdir -p out
           echo "===> Mengonfigurasi defconfig: $DEFCONFIG..."
-          make -j$(nproc --all) ARCH=arm64 O=out "$DEFCONFIG"
+          for cfg in $DEFCONFIG; do
+            make -j$(nproc --all) ARCH=arm64 O=out $cfg
+          done
 
           echo "===> Memaksa opsi EAS, Schedutil, Anxiety & BBR langsung di out/.config via scripts/config..."
           ./scripts/config --file out/.config \
@@ -232,7 +235,7 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz-dtb
+            Image.gz dtbo.img
 
       - name: Package with AnyKernel3
         run: |
@@ -249,16 +252,16 @@ jobs:
 
           OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
 
-          # Salin file kernel hasil build
-          if [ -f "$OUT_DIR/Image.gz-dtb" ]; then
-            echo "Menemukan Image.gz-dtb"
-            cp "$OUT_DIR/Image.gz-dtb" .
-          elif [ -f "$OUT_DIR/Image.gz" ]; then
+          # Salin file kernel hasil build (Prioritaskan Image.gz murni agar AnyKernel3 tidak menghapus kernel_dtb di boot.img)
+          if [ -f "$OUT_DIR/Image.gz" ]; then
             echo "Menemukan Image.gz"
             cp "$OUT_DIR/Image.gz" .
           elif [ -f "$OUT_DIR/Image" ]; then
             echo "Menemukan Image"
             cp "$OUT_DIR/Image" .
+          elif [ -f "$OUT_DIR/Image.gz-dtb" ]; then
+            echo "Menemukan Image.gz-dtb"
+            cp "$OUT_DIR/Image.gz-dtb" .
           else
             echo "ERROR: Tidak ditemukan Image hasil kompilasi!"
             exit 1

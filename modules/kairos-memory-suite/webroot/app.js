@@ -8,20 +8,28 @@ function hasBridge() {
   return !!(window.ksu && window.ksu.exec);
 }
 
-function exec(cmd) {
+// A command that never calls back must not freeze init or the poller.
+function exec(cmd, timeoutMs = 8000) {
   return new Promise((resolve) => {
     if (!hasBridge()) {
       resolve({ errno: -1, stdout: "", stderr: "No KernelSU bridge detected" });
       return;
     }
     const cb = "cb_" + Math.random().toString(36).slice(2);
+    const timer = setTimeout(() => {
+      window[cb] = () => delete window[cb];
+      resolve({ errno: -2, stdout: "", stderr: "timed out" });
+    }, timeoutMs);
     window[cb] = (errno, stdout, stderr) => {
+      clearTimeout(timer);
       delete window[cb];
       resolve({ errno, stdout: stdout || "", stderr: stderr || "" });
     };
     try {
       window.ksu.exec(cmd, "{}", cb);
     } catch (err) {
+      clearTimeout(timer);
+      delete window[cb];
       resolve({ errno: -1, stdout: "", stderr: String(err) });
     }
   });
@@ -217,14 +225,17 @@ async function fetchTelemetry() {
   }
 
   // Render Power
-  el.pwrStatus.textContent = chargeEnabled ? statusStr : "Bypass Mode";
+  // Checkbox shows the user's manual choice; State shows what the node is actually doing.
+  el.pwrStatus.textContent = chargeEnabled ? statusStr : "Charging paused";
   el.pwrType.textContent = typeStr;
-  el.pwrCurrent.textContent = (chargeEnabled ? "-" : "+") + currentMa + " mA";
+  const sign = statusStr === "Charging" ? "+" : statusStr === "Discharging" ? "-" : "";
+  el.pwrCurrent.textContent = sign + currentMa + " mA";
   el.pwrVoltage.textContent = voltageV + " V";
   el.headerTemp.textContent = tempC + "°C";
   el.headerCharge.textContent = watt + "W";
   el.headerBatt.textContent = (capVal !== "" ? capVal : "--") + "%";
-  el.chkBypassMaster.checked = !chargeEnabled;
+  el.chkBypassMaster.checked = appState.config.bypass_charging === true;
+  el.chkBypassMaster.disabled = !chargeNodeSupported;
 
   log(`Live: Temp ${tempC}°C | Net ${watt}W | Swap ${boundedPct}%` + (chargeNodeSupported ? "" : " | Charging control unsupported"));
 }
@@ -384,7 +395,15 @@ function setupPillGroup(groupEl, configKey) {
 setupPillGroup(el.groupSwappiness, "swappiness");
 setupPillGroup(el.groupZramSize, "zram_size");
 setupPillGroup(el.groupBgLimit, "bg_limit");
-if (el.groupChargeLimit) setupPillGroup(el.groupChargeLimit, "charge_limit");
+if (el.groupChargeLimit) {
+  setupPillGroup(el.groupChargeLimit, "charge_limit");
+  // No Apply button on the Status tab, so persist immediately; service.sh picks it up within 4s.
+  el.groupChargeLimit.addEventListener("click", async (e) => {
+    if (!e.target.closest(".pill-btn")) return;
+    await saveConfig();
+    log(`Charge limit set to ${appState.config.charge_limit}%.`);
+  });
+}
 
 function syncTunablesUI() {
   const selectPill = (groupEl, val) => {
@@ -527,11 +546,26 @@ if (el.btnResetDisplay) {
 }
 
 // Boot Initializer
+let polling = false;
+async function pollTelemetry() {
+  if (polling || document.hidden) return;
+  polling = true;
+  try {
+    await fetchTelemetry();
+  } finally {
+    polling = false;
+  }
+}
+
 async function init() {
+  if (!hasBridge()) {
+    log("KernelSU bridge not found. Open this page from the KernelSU manager.");
+    return;
+  }
   await loadConfig();
-  await fetchTelemetry();
-  await fetchDisplayInfo();
-  setInterval(fetchTelemetry, 3500);
+  await pollTelemetry();
+  fetchDisplayInfo();
+  setInterval(pollTelemetry, 3500);
 }
 
 window.addEventListener("DOMContentLoaded", init);

@@ -10,15 +10,15 @@ on:
       KERNEL_REPO:
         description: 'Kernel Source Repository (owner/repo)'
         required: true
-        default: 'alternoegraha/kernel_xiaomi_sm6225'
+        default: 'rivers75auid/kernel_xiaomi_sm6225'
       KERNEL_BRANCH:
         description: 'Kernel Source Branch'
         required: true
-        default: 'afterimage'
+        default: 'cirno-pin'
       DEFCONFIG:
         description: 'Defconfig name'
         required: true
-        default: 'vendor/bengal-perf_defconfig vendor/xiaomi/fog.config'
+        default: 'vendor/fog-perf_defconfig'
       ENABLE_RESUKISU:
         description: 'Integrate ReSukiSU'
         required: true
@@ -110,7 +110,7 @@ jobs:
       - name: Clone Kernel Source
         run: |
           REPO="${{ github.event.inputs.KERNEL_REPO }}"
-          [ -z "$REPO" ] && REPO="alternoegraha/kernel_xiaomi_sm6225"
+          [ -z "$REPO" ] && REPO="rivers75auid/kernel_xiaomi_sm6225"
           BRANCH="${{ github.event.inputs.KERNEL_BRANCH }}"
           [ -z "$BRANCH" ] && BRANCH="afterimage"
 
@@ -124,7 +124,7 @@ jobs:
             "${{ github.event.inputs.ENABLE_RESUKISU || 'true' }}" \
             "${{ github.event.inputs.ENABLE_SUSFS || 'true' }}" \
             "${{ github.event.inputs.SUSFS_VERSION_TAG || 'v2.3.0' }}" \
-            "${{ github.event.inputs.DEFCONFIG || 'vendor/bengal-perf_defconfig vendor/xiaomi/fog.config' }}" \
+            "${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}" \
             "${{ github.event.inputs.KSU_REF || '516d3e87fbc986ccefdde2c2765f1700612441a9' }}"
 
       - name: Apply Custom Kernel Name & Potato Suite Optimizations

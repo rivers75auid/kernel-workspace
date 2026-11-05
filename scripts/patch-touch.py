@@ -80,7 +80,11 @@ def patch_focaltech():
         with open(gest_c, "r", encoding="utf-8", errors="ignore") as f:
             content = f.read()
 
-        if "#include <linux/input/tp_common.h>" not in content:
+        # Tree-native tp_common wiring (e.g. cirno-pin) manages double_tap itself;
+        # its include is usually #ifdef CONFIG_TP_COMMON-guarded, so injecting our
+        # ops outside the guard breaks the build with an incomplete type
+        native_tp_common = "tp_common_set_double_tap_ops" in content
+        if not native_tp_common and "#include <linux/input/tp_common.h>" not in content:
             content = "#include <linux/input/tp_common.h>\n" + content
 
         # Map double click safely to KEY_WAKEUP (standard Android wakeup event)
@@ -90,7 +94,7 @@ def patch_focaltech():
             content = content.replace("gesture = KEY_GESTURE_U;", "gesture = KEY_WAKEUP; /* Standard wakeup */")
 
         # Define FocalTech /sys/touchpanel/double_tap ops
-        if "fts_double_tap_ops" not in content:
+        if "fts_double_tap_ops" not in content and not native_tp_common:
             target_init = "int fts_gesture_init(struct fts_ts_data *ts_data)"
             ops_code = (
                 "static ssize_t fts_double_tap_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {\n"

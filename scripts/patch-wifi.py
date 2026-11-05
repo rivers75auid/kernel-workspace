@@ -52,7 +52,7 @@ def patch_wlan_hdd_main():
         return False
     c = c.replace(t2_proto, r2_proto, 1)
 
-    # 3. In hdd_driver_load, remove param create and set hdd_loaded = true
+    # 3. In hdd_driver_load, remove param create, redirect PLD error goto, and set hdd_loaded = true
     t3 = '''\terrno = wlan_hdd_state_ctrl_param_create();
 \tif (errno) {
 \t\thdd_err("Failed to create ctrl param; errno:%d", errno);
@@ -60,6 +60,19 @@ def patch_wlan_hdd_main():
 \t}'''
     if t3 in c:
         c = c.replace(t3, "", 1)
+
+    t3_pld = '''\terrno = pld_init();
+\tif (errno) {
+\t\thdd_err("Failed to init PLD; errno:%d", errno);
+\t\tgoto param_destroy;
+\t}'''
+    r3_pld = '''\terrno = pld_init();
+\tif (errno) {
+\t\thdd_err("Failed to init PLD; errno:%d", errno);
+\t\tgoto wakelock_destroy;
+\t}'''
+    if t3_pld in c:
+        c = c.replace(t3_pld, r3_pld, 1)
 
     t3_clean = '''param_destroy:
 \twlan_hdd_state_ctrl_param_destroy();'''

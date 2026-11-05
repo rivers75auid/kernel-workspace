@@ -112,7 +112,7 @@ jobs:
           REPO="${{ github.event.inputs.KERNEL_REPO }}"
           [ -z "$REPO" ] && REPO="rivers75auid/kernel_xiaomi_sm6225"
           BRANCH="${{ github.event.inputs.KERNEL_BRANCH }}"
-          [ -z "$BRANCH" ] && BRANCH="afterimage"
+          [ -z "$BRANCH" ] && BRANCH="cirno-pin"
 
           echo "===> Cloning Canonical Kernel Source from $REPO ($BRANCH)..."
           git clone --depth=1 "https://github.com/$REPO.git" -b "$BRANCH" "$GITHUB_WORKSPACE/kernel_source"
@@ -136,7 +136,7 @@ jobs:
           [ -z "$KNAME" ] && KNAME="Kairos"
 
           DEFCONFIG="${{ github.event.inputs.DEFCONFIG }}"
-          [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/bengal-perf_defconfig vendor/xiaomi/fog.config"
+          [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/fog-perf_defconfig"
           FIRST_DEFCONFIG=$(echo "$DEFCONFIG" | awk '{print $1}')
           DEFCONFIG_PATH="arch/arm64/configs/$FIRST_DEFCONFIG"
 
@@ -192,7 +192,7 @@ jobs:
         run: |
           cd "$GITHUB_WORKSPACE/kernel_source"
           DEFCONFIG="${{ github.event.inputs.DEFCONFIG }}"
-          [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/bengal-perf_defconfig vendor/xiaomi/fog.config"
+          [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/fog-perf_defconfig"
           KNAME="${{ github.event.inputs.KERNEL_NAME }}"
           [ -z "$KNAME" ] && KNAME="Kairos"
 

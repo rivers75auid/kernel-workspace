@@ -151,8 +151,10 @@ jobs:
           echo "# CONFIG_TOUCHSCREEN_NT36XXX is not set" >> "$DEFCONFIG_PATH"
           echo "# CONFIG_TOUCHSCREEN_FTS is not set" >> "$DEFCONFIG_PATH"
 
-          if grep -q "yamltree" scripts/dtc/Makefile 2>/dev/null; then
-            echo "===> Fixing yamltree.o duplicate in scripts/dtc/Makefile..."
+          # Dedupe yamltree.o only when actually duplicated (old fog trees).
+          # cirno-pin ships a clean -DNO_YAML dtc Makefile that must NOT be touched.
+          if [ "$(grep -c 'yamltree' scripts/dtc/Makefile 2>/dev/null || echo 0)" -gt 1 ]; then
+            echo "===> Deduplicating yamltree.o in scripts/dtc/Makefile..."
             sed -i '/yamltree/d' scripts/dtc/Makefile
           fi
 

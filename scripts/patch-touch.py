@@ -53,26 +53,50 @@ def patch_nt36xxx():
             f.write(c_content)
         print("[+] Configured clean Novatek SPI touch without ESD reload loop or KEY_POWER triggers")
 
+def _usb_pulgin_defined_somewhere(kernel_root):
+    """True if g_touchscreen_usb_pulgin is defined (not just extern'd) in the tree."""
+    import re
+    pat = re.compile(r"^\s*touchscreen_usb_p[li]ugin_data_t\s+g_touchscreen_usb_pulgin\s*=", re.M)
+    for base in ("drivers/input/touchscreen", "drivers/power/supply"):
+        base_dir = os.path.join(kernel_root, base)
+        for root, _dirs, files in os.walk(base_dir):
+            for name in files:
+                if not name.endswith(".c"):
+                    continue
+                try:
+                    with open(os.path.join(root, name), encoding="utf-8", errors="ignore") as f:
+                        if pat.search(f.read()):
+                            return True
+                except OSError:
+                    pass
+    return False
+
 def patch_focaltech():
     kernel_root = os.getcwd()
     d = os.path.join(kernel_root, "drivers/input/touchscreen/ft8006s_spi")
     if not os.path.exists(d):
         return
 
-    # Define g_touchscreen_usb_pulgin in focaltech_core.c to satisfy linker
+    # Define g_touchscreen_usb_pulgin in focaltech_core.c to satisfy the linker
+    # on trees where nothing defines it (afterimage). cirno-pin defines it
+    # natively in smb1351-charger.c; instantiating a second copy breaks the
+    # vmlinux link with a multiple-definition error.
     core_c = os.path.join(d, "focaltech_core.c")
     if os.path.exists(core_c):
         with open(core_c, "r", encoding="utf-8", errors="ignore") as f:
             core_data = f.read()
         if "extern touchscreen_usb_plugin_data_t g_touchscreen_usb_pulgin;" in core_data:
-            core_data = core_data.replace(
-                "extern touchscreen_usb_plugin_data_t g_touchscreen_usb_pulgin;",
-                "touchscreen_usb_plugin_data_t g_touchscreen_usb_pulgin;",
-                1
-            )
-            with open(core_c, "w", encoding="utf-8", newline="\n") as f:
-                f.write(core_data)
-            print(f"[+] Instantiated g_touchscreen_usb_pulgin in {core_c}")
+            if _usb_pulgin_defined_somewhere(kernel_root):
+                print("[*] g_touchscreen_usb_pulgin already defined by the tree; keeping extern")
+            else:
+                core_data = core_data.replace(
+                    "extern touchscreen_usb_plugin_data_t g_touchscreen_usb_pulgin;",
+                    "touchscreen_usb_plugin_data_t g_touchscreen_usb_pulgin;",
+                    1
+                )
+                with open(core_c, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(core_data)
+                print(f"[+] Instantiated g_touchscreen_usb_pulgin in {core_c}")
 
     # Hook /sys/touchpanel/double_tap safely using KEY_WAKEUP
     gest_c = os.path.join(d, "focaltech_gesture.c")

@@ -144,8 +144,10 @@ jobs:
           sed -i '/CONFIG_LOCALVERSION/d' "$DEFCONFIG_PATH"
           echo "CONFIG_LOCALVERSION=\"-${KNAME}\"" >> "$DEFCONFIG_PATH"
 
-          echo "===> Fixing yamltree.o duplicate & hostprogs in scripts/dtc/Makefile..."
-          cp "$GITHUB_WORKSPACE/patches/dtc_Makefile" scripts/dtc/Makefile
+          if grep -q "yamltree" scripts/dtc/Makefile 2>/dev/null; then
+            echo "===> Fixing yamltree.o duplicate in scripts/dtc/Makefile..."
+            sed -i '/yamltree/d' scripts/dtc/Makefile
+          fi
 
           echo "===> Fixing MemAvailable overflow / MGLRU counter leak..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-memavailable.py"

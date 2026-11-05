@@ -235,11 +235,20 @@ jobs:
 
           # Resolve semua NEW symbols non-interaktif sebelum build,
           # agar syncconfig tidak Restart config dan mereset opsi kita
+          echo "===> Force KSU manual hook mode (Non-GKI 4.19)..."
+          ./scripts/config --file out/.config \
+            --enable KSU \
+            --enable KSU_MANUAL_HOOK \
+            --disable KSU_TRACEPOINT_HOOK \
+            --enable KSU_SUSFS
+
           echo "===> Menyelesaikan NEW symbols non-interaktif (yes olddefconfig)..."
           yes "" | make -j$(nproc --all) ARCH=arm64 O=out olddefconfig
 
           echo "===> Verifikasi hasil konfigurasi kritis:"
           grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_WALT|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG" out/.config
+          echo "===> Verifikasi KSU hook mode:"
+          grep -E "CONFIG_KSU" out/.config || true
 
           echo "===> Mengompilasi Kernel..."
           make -j$(nproc --all) ARCH=arm64 O=out \

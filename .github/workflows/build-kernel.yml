@@ -101,7 +101,11 @@ jobs:
         run: |
           echo "===> Downloading ZyC Clang 16.0.6 (Optimized for Cortex-A73/A53 & Snapdragon 680)..."
           mkdir -p "$GITHUB_WORKSPACE/zyc-clang"
-          curl -sSL "https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260807-release/Clang-16.0.6-20260807.tar.gz" | tar -xz -C "$GITHUB_WORKSPACE/zyc-clang"
+          curl -fSL --retry 5 --retry-connrefused --retry-delay 3 \
+            -o /tmp/zyc-clang.tar.gz \
+            "https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260807-release/Clang-16.0.6-20260807.tar.gz"
+          tar -xzf /tmp/zyc-clang.tar.gz -C "$GITHUB_WORKSPACE/zyc-clang"
+          rm -f /tmp/zyc-clang.tar.gz
 
       - name: Clone Kernel Source
         run: |

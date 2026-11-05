@@ -165,9 +165,6 @@ jobs:
           echo "===> Baking Native In-Kernel VM, ZRAM & Schedutil Defaults (No Scripts / Rootless)..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-vm-sched.py"
 
-          echo "===> Applying surgical Qualcomm WLAN (qcacld-3.0) lazy-load & 11ax/160MHz compatibility fix..."
-          python3 "$GITHUB_WORKSPACE/scripts/patch-wifi.py"
-
           if [ "$OPT_POTATO" = "true" ]; then
             echo "===> Enabling Potato Tuning Suite (EAS/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
             # Strip competing Kconfig choice defaults & legacy WALT so potato.config wins cleanly
@@ -177,10 +174,6 @@ jobs:
             sed -i '/CONFIG_DEFAULT_IOSCHED/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_DEFAULT_CFQ/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_DEFAULT_WESTWOOD/d' "$DEFCONFIG_PATH"
-            sed -i '/CONFIG_ANDROID_PARANOID_NETWORK/d' "$DEFCONFIG_PATH"
-            sed -i '/CONFIG_NET_ACT_/d' "$DEFCONFIG_PATH"
-            sed -i '/CONFIG_NET_CLS_/d' "$DEFCONFIG_PATH"
-            sed -i '/CONFIG_NET_SCH_TBF/d' "$DEFCONFIG_PATH"
             cat "$GITHUB_WORKSPACE/configs/potato.config" >> "$DEFCONFIG_PATH"
           fi
 
@@ -218,15 +211,7 @@ jobs:
             --enable DEFAULT_ANXIETY \
             --disable DEFAULT_CFQ \
             --enable DEFAULT_BBR \
-            --disable DEFAULT_WESTWOOD \
-            --disable ANDROID_PARANOID_NETWORK \
-            --enable NET_ACT_BPF \
-            --enable NET_ACT_POLICE \
-            --enable NET_ACT_CONNMARK \
-            --enable NET_CLS_BPF \
-            --enable NET_CLS_ACT \
-            --enable NET_CLS_MATCHALL \
-            --enable NET_SCH_TBF
+            --disable DEFAULT_WESTWOOD
 
           # Resolve semua NEW symbols non-interaktif sebelum build,
           # agar syncconfig tidak Restart config dan mereset opsi kita
@@ -234,7 +219,7 @@ jobs:
           yes "" | make -j$(nproc --all) ARCH=arm64 O=out olddefconfig
 
           echo "===> Verifikasi hasil konfigurasi kritis:"
-          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_WALT|CONFIG_IOSCHED_ANXIETY|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_ANDROID_PARANOID_NETWORK" out/.config
+          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_WALT|CONFIG_IOSCHED_ANXIETY|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG" out/.config
 
           echo "===> Mengompilasi Kernel..."
           make -j$(nproc --all) ARCH=arm64 O=out \

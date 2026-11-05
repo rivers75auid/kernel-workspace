@@ -54,20 +54,6 @@ chmod 666 /proc/sys/vm/swappiness 2>/dev/null
 echo "$SWAPPINESS" > /proc/sys/vm/swappiness
 chmod 444 /proc/sys/vm/swappiness 2>/dev/null
 
-# Saved ZRAM size from the WebUI; swap is nearly empty this early, so the reset is cheap.
-if [ -n "$ZRAM_SIZE" ] && [ -e /sys/block/zram0/disksize ]; then
-  want=$(( ${ZRAM_SIZE%M} * 1048576 ))
-  have=$(cat /sys/block/zram0/disksize 2>/dev/null)
-  diff=$(( want - ${have:-0} )); [ "$diff" -lt 0 ] && diff=$(( -diff ))
-  if [ "$diff" -gt 50000000 ]; then
-    swapoff /dev/block/zram0 2>/dev/null
-    echo 1 > /sys/block/zram0/reset
-    echo "$ZRAM_SIZE" > /sys/block/zram0/disksize
-    mkswap /dev/block/zram0 >/dev/null 2>&1 && swapon /dev/block/zram0 -p -2 2>/dev/null
-    grep -q zram0 /proc/swaps && echo "ZRAM resized to $ZRAM_SIZE" >> $LOG || echo "ZRAM resize FAILED" >> $LOG
-  fi
-fi
-
 chmod 666 /proc/sys/vm/watermark_scale_factor 2>/dev/null
 echo 10 > /proc/sys/vm/watermark_scale_factor
 chmod 444 /proc/sys/vm/watermark_scale_factor 2>/dev/null

@@ -749,7 +749,6 @@ with open('include/linux/sched.h', 'r') as f:
     sh = f.read()
 if 'susfs_last_fake_mnt_id' not in sh:
     sh = sh.replace('ANDROID_KABI_RESERVE(8);', '''#ifdef CONFIG_KSU_SUSFS
-	u64 susfs_task_state;
 	u64 susfs_last_fake_mnt_id;
 #endif
 	ANDROID_KABI_RESERVE(8);''', 1)

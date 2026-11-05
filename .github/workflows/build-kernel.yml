@@ -144,6 +144,15 @@ jobs:
           sed -i '/CONFIG_LOCALVERSION/d' "$DEFCONFIG_PATH"
           echo "CONFIG_LOCALVERSION=\"-${KNAME}\"" >> "$DEFCONFIG_PATH"
 
+          echo "===> Disabling conflicting I2C touchscreen drivers for Redmi 10C (fog SPI)..."
+          sed -i '/CONFIG_TOUCHSCREEN_NT36XXX/d' "$DEFCONFIG_PATH" arch/arm64/configs/vendor/xiaomi/fog.config || true
+          sed -i '/CONFIG_TOUCHSCREEN_FTS=/d' "$DEFCONFIG_PATH" arch/arm64/configs/vendor/xiaomi/fog.config || true
+          sed -i '/CONFIG_TOUCHSCREEN_FTS_DIRECTORY/d' "$DEFCONFIG_PATH" arch/arm64/configs/vendor/xiaomi/fog.config || true
+          echo "# CONFIG_TOUCHSCREEN_NT36XXX is not set" >> "$DEFCONFIG_PATH"
+          echo "# CONFIG_TOUCHSCREEN_FTS is not set" >> "$DEFCONFIG_PATH"
+          echo "# CONFIG_TOUCHSCREEN_NT36XXX is not set" >> arch/arm64/configs/vendor/xiaomi/fog.config
+          echo "# CONFIG_TOUCHSCREEN_FTS is not set" >> arch/arm64/configs/vendor/xiaomi/fog.config
+
           if grep -q "yamltree" scripts/dtc/Makefile 2>/dev/null; then
             echo "===> Fixing yamltree.o duplicate in scripts/dtc/Makefile..."
             sed -i '/yamltree/d' scripts/dtc/Makefile
@@ -214,7 +223,9 @@ jobs:
             --enable DEFAULT_BBR \
             --disable DEFAULT_WESTWOOD \
             --enable KALLSYMS \
-            --enable KALLSYMS_ALL
+            --enable KALLSYMS_ALL \
+            --disable TOUCHSCREEN_NT36XXX \
+            --disable TOUCHSCREEN_FTS
 
           if grep -q "CONFIG_IOSCHED_ANXIETY=y" out/.config 2>/dev/null; then
             ./scripts/config --file out/.config --enable DEFAULT_ANXIETY

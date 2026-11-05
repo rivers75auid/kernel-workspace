@@ -3,8 +3,8 @@ import sys
 
 def patch_nt36xxx():
     kernel_root = os.getcwd()
+    # On Redmi 10C (fog), Novatek touchscreen is connected via SPI (nt36525b_spi)
     dirs = [
-        os.path.join(kernel_root, "drivers/input/touchscreen/nt36xxx"),
         os.path.join(kernel_root, "drivers/input/touchscreen/nt36525b_spi")
     ]
 
@@ -140,10 +140,9 @@ def patch_lct_gesture():
 
 def patch_focaltech():
     kernel_root = os.getcwd()
+    # On Redmi 10C (fog), FocalTech touchscreen is connected via SPI (ft8006s_spi)
     dirs = [
-        os.path.join(kernel_root, "drivers/input/touchscreen/ft8006s_spi"),
-        os.path.join(kernel_root, "drivers/input/touchscreen/focaltech_touch"),
-        os.path.join(kernel_root, "drivers/input/touchscreen/ft3418_i2c")
+        os.path.join(kernel_root, "drivers/input/touchscreen/ft8006s_spi")
     ]
 
     for d in dirs:
@@ -217,7 +216,20 @@ def patch_focaltech():
             with open(gest_c, "w", encoding="utf-8", newline="\n") as f:
                 f.write(content)
 
+def disable_conflicting_touch():
+    kernel_root = os.getcwd()
+    makefile = os.path.join(kernel_root, "drivers/input/touchscreen/Makefile")
+    if os.path.exists(makefile):
+        with open(makefile, "r", encoding="utf-8") as f:
+            c = f.read()
+        c = c.replace("obj-$(CONFIG_TOUCHSCREEN_NT36XXX)\t+= nt36xxx/", "# obj-$(CONFIG_TOUCHSCREEN_NT36XXX) += nt36xxx/ (Disabled for fog SPI)")
+        c = c.replace("obj-$(CONFIG_TOUCHSCREEN_FTS)\t+= ft3418_i2c/", "# obj-$(CONFIG_TOUCHSCREEN_FTS) += ft3418_i2c/ (Disabled for fog SPI)")
+        with open(makefile, "w", encoding="utf-8") as f:
+            f.write(c)
+        print("[+] Disabled conflicting I2C touchscreen drivers in drivers/input/touchscreen/Makefile")
+
 if __name__ == "__main__":
+    disable_conflicting_touch()
     patch_nt36xxx()
     patch_lct_gesture()
     patch_focaltech()

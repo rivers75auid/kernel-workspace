@@ -220,7 +220,6 @@ jobs:
             --enable DEFAULT_BBR \
             --disable DEFAULT_WESTWOOD \
             --disable ANDROID_PARANOID_NETWORK \
-            --enable BUILD_ARM64_DT_OVERLAY \
             --enable NET_ACT_BPF \
             --enable NET_ACT_POLICE \
             --enable NET_ACT_CONNMARK \
@@ -243,7 +242,7 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz dtbo.img
+            Image.gz-dtb
 
       - name: Package with AnyKernel3
         run: |
@@ -260,26 +259,22 @@ jobs:
 
           OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
 
-          # Salin file kernel hasil build (Prioritaskan Image.gz murni agar AnyKernel3 tidak menghapus kernel_dtb di boot.img)
-          if [ -f "$OUT_DIR/Image.gz" ]; then
+          # Salin file kernel hasil build (Prioritaskan Image.gz-dtb agar membawa 18 device tree dasar Qualcomm)
+          if [ -f "$OUT_DIR/Image.gz-dtb" ]; then
+            echo "Menemukan Image.gz-dtb"
+            cp "$OUT_DIR/Image.gz-dtb" .
+          elif [ -f "$OUT_DIR/Image.gz" ]; then
             echo "Menemukan Image.gz"
             cp "$OUT_DIR/Image.gz" .
           elif [ -f "$OUT_DIR/Image" ]; then
             echo "Menemukan Image"
             cp "$OUT_DIR/Image" .
-          elif [ -f "$OUT_DIR/Image.gz-dtb" ]; then
-            echo "Menemukan Image.gz-dtb"
-            cp "$OUT_DIR/Image.gz-dtb" .
           else
             echo "ERROR: Tidak ditemukan Image hasil kompilasi!"
             exit 1
           fi
 
-          # Salin dtbo.img jika ada
-          if [ -f "$OUT_DIR/dtbo.img" ]; then
-            echo "Menemukan dtbo.img"
-            cp "$OUT_DIR/dtbo.img" .
-          fi
+          # JANGAN salin dtbo.img ke AnyKernel3 agar partisi dtbo fisik OEM tidak tertimpa!
 
           # Salin dtb jika ada
           if [ -f "$OUT_DIR/dtb.img" ]; then

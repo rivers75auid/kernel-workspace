@@ -759,7 +759,7 @@ if 'susfs_last_fake_mnt_id' not in sh:
 # 3. fs/namespace.c
 with open('fs/namespace.c', 'r') as f:
     ns = f.read()
-if 'susfs_mnt_id_ida' not in ns:
+if 'DEFINE_IDA(susfs_mnt_id_ida)' not in ns:
     target_ns = '#include \"internal.h\"\n'
     repl_ns = '''#include \"internal.h\"
 
@@ -792,9 +792,92 @@ bool susfs_is_auto_add_try_umount_for_bind_mount_enabled = true;
 #endif
 '''
     ns = ns.replace(target_ns, repl_ns, 1)
-    with open('fs/namespace.c', 'w') as f:
-        f.write(ns)
-    print('[+] fs/namespace.c patched for SuSFS!')
+
+# Fix alloc_vfsmnt in vfs_create_mount()
+vfs_create_orig = 'mnt = alloc_vfsmnt(fc->source ?: \"none\");'
+vfs_create_repl = '''#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+\tif (unlikely(susfs_is_current_ksu_domain())) {
+\t\tmnt = alloc_vfsmnt(fc->source ?: \"none\", true, 0);
+\t\tgoto bypass_orig_flow;
+\t}
+\tmnt = alloc_vfsmnt(fc->source ?: \"none\", false, 0);
+bypass_orig_flow:
+#else
+\tmnt = alloc_vfsmnt(fc->source ?: \"none\");
+#endif'''
+if vfs_create_orig in ns:
+    ns = ns.replace(vfs_create_orig, vfs_create_repl, 1)
+
+# Add zygote fake_mnt_id in vfs_create_mount()
+vfs_parent = 'mnt->mnt_parent\t\t= mnt;'
+vfs_parent_repl = '''mnt->mnt_parent\t\t= mnt;
+
+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+\tif (susfs_is_current_zygote_domain()) {
+\t\tmnt->mnt.susfs_mnt_id_backup = mnt->mnt_id;
+\t\tmnt->mnt_id = current->susfs_last_fake_mnt_id++;
+\t}
+#endif'''
+if vfs_parent in ns and 'susfs_last_fake_mnt_id' not in ns:
+    ns = ns.replace(vfs_parent, vfs_parent_repl, 1)
+
+# Fix alloc_vfsmnt in clone_mnt()
+clone_orig = 'mnt = alloc_vfsmnt(old->mnt_devname);'
+clone_repl = '''#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
+\tbool is_current_ksu_domain = susfs_is_current_ksu_domain();
+\tbool is_current_zygote_domain = susfs_is_current_zygote_domain();
+
+\tif (unlikely(is_current_ksu_domain)) {
+\t\tif (!(flag & CL_COPY_MNT_NS)) {
+\t\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);
+\t\t\tgoto bypass_orig_flow_clone;
+\t\t}
+\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, old->mnt_id);
+\t\tif (mnt) {
+\t\t\tmnt->mnt.susfs_mnt_id_backup = DEFAULT_SUS_MNT_ID_FOR_KSU_PROC_UNSHARE;
+\t\t}
+\t\tgoto bypass_orig_flow_clone;
+\t}
+\tif (likely(is_current_zygote_domain) && (old->mnt_id >= DEFAULT_SUS_MNT_ID)) {
+\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);
+\t\tgoto bypass_orig_flow_clone;
+\t}
+\tif ((flag & CL_COPY_MNT_NS) && (old->mnt_id >= DEFAULT_SUS_MNT_ID)) {
+\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);
+\t\tgoto bypass_orig_flow_clone;
+\t}
+\tmnt = alloc_vfsmnt(old->mnt_devname, false, 0);
+bypass_orig_flow_clone:
+#else
+\tmnt = alloc_vfsmnt(old->mnt_devname);
+#endif'''
+if clone_orig in ns:
+    ns = ns.replace(clone_orig, clone_repl, 1)
+
+with open('fs/namespace.c', 'w') as f:
+    f.write(ns)
+print('[+] fs/namespace.c patched for SuSFS!')
+
+# 4. kernel/sys.c (uname spoofing)
+with open('kernel/sys.c', 'r') as f:
+    sys_c = f.read()
+if 'susfs_spoof_uname' not in sys_c:
+    uname_target = 'SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)'
+    uname_repl = '''#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+extern void susfs_spoof_uname(struct new_utsname* tmp);
+#endif
+SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)'''
+    sys_c = sys_c.replace(uname_target, uname_repl, 1)
+    
+    memcpy_target = 'memcpy(&tmp, utsname(), sizeof(tmp));'
+    memcpy_repl = '''memcpy(&tmp, utsname(), sizeof(tmp));
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+\tsusfs_spoof_uname(&tmp);
+#endif'''
+    sys_c = sys_c.replace(memcpy_target, memcpy_repl, 1)
+    with open('kernel/sys.c', 'w') as f:
+        f.write(sys_c)
+    print('[+] kernel/sys.c patched for SuSFS uname spoofing!')
 "
 
         echo "===> Menambahkan susfs_extra_works dan sdcard monitor ke fs/susfs.c..."

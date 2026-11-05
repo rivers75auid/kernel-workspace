@@ -14,11 +14,11 @@ on:
       KERNEL_BRANCH:
         description: 'Kernel Source Branch'
         required: true
-        default: 'afterimage'
+        default: 'fog'
       DEFCONFIG:
         description: 'Defconfig name'
         required: true
-        default: 'vendor/bengal-perf_defconfig vendor/xiaomi/fog.config'
+        default: 'vendor/fog-perf_defconfig'
       ENABLE_RESUKISU:
         description: 'Integrate ReSukiSU'
         required: true
@@ -108,7 +108,7 @@ jobs:
           REPO="${{ github.event.inputs.KERNEL_REPO }}"
           [ -z "$REPO" ] && REPO="alternoegraha/kernel_xiaomi_sm6225"
           BRANCH="${{ github.event.inputs.KERNEL_BRANCH }}"
-          [ -z "$BRANCH" ] && BRANCH="afterimage"
+          [ -z "$BRANCH" ] && BRANCH="fog"
 
           echo "===> Cloning Canonical Kernel Source from $REPO ($BRANCH)..."
           git clone --depth=1 "https://github.com/$REPO.git" -b "$BRANCH" "$GITHUB_WORKSPACE/kernel_source"
@@ -120,7 +120,7 @@ jobs:
             "${{ github.event.inputs.ENABLE_RESUKISU || 'true' }}" \
             "${{ github.event.inputs.ENABLE_SUSFS || 'true' }}" \
             "${{ github.event.inputs.SUSFS_VERSION_TAG || 'v2.3.0' }}" \
-            "${{ github.event.inputs.DEFCONFIG || 'vendor/bengal-perf_defconfig vendor/xiaomi/fog.config' }}" \
+            "${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}" \
             "${{ github.event.inputs.KSU_REF || '516d3e87fbc986ccefdde2c2765f1700612441a9' }}"
 
       - name: Apply Custom Kernel Name & Potato Suite Optimizations
@@ -132,7 +132,7 @@ jobs:
           [ -z "$KNAME" ] && KNAME="Kairos"
 
           DEFCONFIG="${{ github.event.inputs.DEFCONFIG }}"
-          [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/bengal-perf_defconfig vendor/xiaomi/fog.config"
+          [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/fog-perf_defconfig"
           FIRST_DEFCONFIG=$(echo "$DEFCONFIG" | awk '{print $1}')
           DEFCONFIG_PATH="arch/arm64/configs/$FIRST_DEFCONFIG"
 
@@ -161,6 +161,9 @@ jobs:
           echo "===> Baking Native In-Kernel VM, ZRAM & Schedutil Defaults (No Scripts / Rootless)..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-vm-sched.py"
 
+          echo "===> Applying surgical Qualcomm WLAN (qcacld-3.0) lazy-load & 11ax/160MHz compatibility fix..."
+          python3 "$GITHUB_WORKSPACE/scripts/patch-wifi.py"
+
           if [ "$OPT_POTATO" = "true" ]; then
             echo "===> Enabling Potato Tuning Suite (EAS/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
             # Strip competing Kconfig choice defaults & legacy WALT so potato.config wins cleanly
@@ -181,7 +184,7 @@ jobs:
         run: |
           cd "$GITHUB_WORKSPACE/kernel_source"
           DEFCONFIG="${{ github.event.inputs.DEFCONFIG }}"
-          [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/bengal-perf_defconfig vendor/xiaomi/fog.config"
+          [ -z "$DEFCONFIG" ] && DEFCONFIG="vendor/fog-perf_defconfig"
           KNAME="${{ github.event.inputs.KERNEL_NAME }}"
           [ -z "$KNAME" ] && KNAME="Kairos"
 
@@ -213,6 +216,7 @@ jobs:
             --enable DEFAULT_BBR \
             --disable DEFAULT_WESTWOOD \
             --disable ANDROID_PARANOID_NETWORK \
+            --enable BUILD_ARM64_DT_OVERLAY \
             --enable NET_ACT_BPF \
             --enable NET_ACT_POLICE \
             --enable NET_ACT_CONNMARK \

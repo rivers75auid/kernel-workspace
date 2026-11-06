@@ -23,18 +23,11 @@ def patch_nt36xxx():
                     f.write(content)
                 print(f"[+] Enabled NVT_TOUCH_ESD_PROTECT in {h_file}")
 
-        # 2. Patch C source: ghost touch filter, KEY_POWER for D2TW, /sys/touchpanel/double_tap hook
+        # 2. Patch C source: ghost touch filter, KEY_POWER for D2TW
         c_file = os.path.join(d, "nt36xxx.c")
         if os.path.exists(c_file):
             with open(c_file, "r", encoding="utf-8", errors="ignore") as f:
                 c_content = f.read()
-
-            # Include tp_common.h
-            if "#include <linux/input/tp_common.h>" not in c_content:
-                target_h = "#include <linux/pm_runtime.h>"
-                repl_h = "#include <linux/pm_runtime.h>\n#include <linux/input/tp_common.h>"
-                c_content = c_content.replace(target_h, repl_h, 1)
-                print(f"[+] Included linux/input/tp_common.h in {c_file}")
 
             # Filter electrical noise & bezel stray capacitance
             target_filter = "input_w = (uint32_t)(point_data[position + 4]);"
@@ -54,38 +47,6 @@ def patch_nt36xxx():
             if target_key in c_content:
                 c_content = c_content.replace(target_key, repl_key, 1)
                 print(f"[+] Mapped GESTURE_DOUBLE_CLICK to KEY_POWER in {c_file}")
-
-            # Define /sys/touchpanel/double_tap ops right after forward declaration at line 107
-            target_ops = "static int lct_nvt_tp_gesture_callback(bool flag);"
-            repl_ops = (
-                "static int lct_nvt_tp_gesture_callback(bool flag);\n\n"
-                "static ssize_t nvt_double_tap_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {\n"
-                '\treturn sprintf(buf, "%d\\n", ts ? ts->is_gesture_mode : 0);\n'
-                "}\n"
-                "static ssize_t nvt_double_tap_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {\n"
-                "\tunsigned int input = 0;\n"
-                '\tif (sscanf(buf, "%u", &input) == 1)\n'
-                "\t\tlct_nvt_tp_gesture_callback(input > 0);\n"
-                "\treturn count;\n"
-                "}\n"
-                "static struct tp_common_ops nvt_double_tap_ops = {\n"
-                "\t.show = nvt_double_tap_show,\n"
-                "\t.store = nvt_double_tap_store,\n"
-                "};"
-            )
-            if target_ops in c_content and "nvt_double_tap_ops" not in c_content:
-                c_content = c_content.replace(target_ops, repl_ops, 1)
-                print(f"[+] Created nvt_double_tap_ops in {c_file}")
-
-            # Register /sys/touchpanel/double_tap in probe
-            target_call = "ret = init_lct_tp_gesture(lct_nvt_tp_gesture_callback);"
-            repl_call = (
-                "ret = init_lct_tp_gesture(lct_nvt_tp_gesture_callback);\n"
-                "\ttp_common_set_double_tap_ops(&nvt_double_tap_ops);"
-            )
-            if target_call in c_content and "tp_common_set_double_tap_ops" not in c_content:
-                c_content = c_content.replace(target_call, repl_call, 1)
-                print(f"[+] Registered tp_common_set_double_tap_ops in probe in {c_file}")
 
             # Initialize ts->is_gesture_mode = true in probe
             target_init = 'ts->stylus_resol_double = of_property_read_bool(np, "novatek,stylus-resol-double");'
@@ -170,11 +131,6 @@ def patch_focaltech():
             with open(gest_c, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
-            # Include tp_common.h
-            if "#include <linux/input/tp_common.h>" not in content:
-                content = "#include <linux/input/tp_common.h>\n" + content
-                print(f"[+] Included linux/input/tp_common.h in {gest_c}")
-
             target_key = "case GESTURE_DOUBLECLICK:\n        gesture = KEY_GESTURE_U;"
             repl_key = "case GESTURE_DOUBLECLICK:\n        gesture = KEY_POWER; /* Wake screen via KEY_POWER */"
             if target_key in content:
@@ -183,36 +139,6 @@ def patch_focaltech():
             elif "KEY_GESTURE_U" in content:
                 content = content.replace("gesture = KEY_GESTURE_U;", "gesture = KEY_POWER;", 1)
                 print(f"[+] Replaced KEY_GESTURE_U with KEY_POWER in {gest_c}")
-
-            # Define FocalTech /sys/touchpanel/double_tap ops BEFORE fts_gesture_init
-            if "fts_double_tap_ops" not in content:
-                target_init = "int fts_gesture_init(struct fts_ts_data *ts_data)"
-                ops_code = (
-                    "static ssize_t fts_double_tap_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {\n"
-                    '\treturn sprintf(buf, "%d\\n", fts_data ? fts_data->gesture_mode : 0);\n'
-                    "}\n"
-                    "static ssize_t fts_double_tap_store(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {\n"
-                    "\tunsigned int input = 0;\n"
-                    '\tif (sscanf(buf, "%u", &input) == 1)\n'
-                    "\t\tlct_fts_tp_gesture_callback(input > 0);\n"
-                    "\treturn count;\n"
-                    "}\n"
-                    "static struct tp_common_ops fts_double_tap_ops = {\n"
-                    "\t.show = fts_double_tap_show,\n"
-                    "\t.store = fts_double_tap_store,\n"
-                    "};\n\n"
-                    "int fts_gesture_init(struct fts_ts_data *ts_data)"
-                )
-                if target_init in content:
-                    content = content.replace(target_init, ops_code, 1)
-                    print(f"[+] Defined fts_double_tap_ops before fts_gesture_init in {gest_c}")
-
-            # Hook in fts_gesture_init
-            target_sysfs = "fts_create_gesture_sysfs(ts_data->dev);"
-            repl_sysfs = "fts_create_gesture_sysfs(ts_data->dev);\n    tp_common_set_double_tap_ops(&fts_double_tap_ops);"
-            if target_sysfs in content and "tp_common_set_double_tap_ops" not in content:
-                content = content.replace(target_sysfs, repl_sysfs, 1)
-                print(f"[+] Registered FocalTech tp_common_set_double_tap_ops in {gest_c}")
 
             with open(gest_c, "w", encoding="utf-8", newline="\n") as f:
                 f.write(content)

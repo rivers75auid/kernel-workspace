@@ -16,14 +16,24 @@ STRUCT_ANCHOR = "\tstruct delayed_work\thvdcp_det_work;"
 STRUCT_NEW = (STRUCT_ANCHOR +
     "\n\tstruct delayed_work\tapsd_rerun_work;")
 
-WORKER_ANCHOR = (
-    "\tif (rc)\n"
-    "\t\tpr_err(\"Couldn't re-run APSD algo\\n\");\n"
-    "\n"
-    "\treturn 0;\n"
-    "}\n"
-)
-WORKER_NEW = WORKER_ANCHOR + (
+WORKER_ANCHORS = [
+    (
+        "\tif (rc)\n"
+        "\t\tpr_debug(\"Couldn't re-run APSD algo\\n\");\n"
+        "\n"
+        "\treturn 0;\n"
+        "}\n"
+    ),
+    (
+        "\tif (rc)\n"
+        "\t\tpr_err(\"Couldn't re-run APSD algo\\n\");\n"
+        "\n"
+        "\treturn 0;\n"
+        "}\n"
+    )
+]
+
+WORKER_NEW_BODY = (
     "\n"
     "/* Delayed rerun: see smb1351_apsd_rerun_work() comment. */\n"
     "static void smb1351_apsd_rerun_work(struct work_struct *work)\n"
@@ -57,14 +67,6 @@ CANCEL_ANCHOR = "\t\tcancel_delayed_work_sync(&chip->hvdcp_det_work);"
 CANCEL_NEW = (CANCEL_ANCHOR +
     "\n\t\tcancel_delayed_work_sync(&chip->apsd_rerun_work);")
 
-EDITS = [
-    ("struct apsd_rerun_work field", STRUCT_ANCHOR, STRUCT_NEW),
-    ("apsd_rerun_work worker", WORKER_ANCHOR, WORKER_NEW),
-    ("delayed rerun at handler", RERUN_ANCHOR, RERUN_NEW),
-    ("INIT_DELAYED_WORK in probe", INIT_ANCHOR, INIT_NEW),
-    ("cancel on teardown", CANCEL_ANCHOR, CANCEL_NEW),
-]
-
 
 def main():
     if not os.path.exists(DRIVER):
@@ -75,16 +77,56 @@ def main():
     if "apsd_rerun_work" in c:
         print("[+] smb1351 delayed APSD rerun already applied")
         return 0
+
     failed = False
-    for name, old, new in EDITS:
-        if old not in c:
-            print(f"[-] anchor not found: {name}")
-            failed = True
-            continue
-        c = c.replace(old, new, 1)
-        print(f"[+] {name}")
+
+    # 1. struct apsd_rerun_work field
+    if STRUCT_ANCHOR in c:
+        c = c.replace(STRUCT_ANCHOR, STRUCT_NEW, 1)
+        print("[+] struct apsd_rerun_work field")
+    else:
+        print("[-] anchor not found: struct apsd_rerun_work field")
+        failed = True
+
+    # 2. apsd_rerun_work worker
+    worker_matched = False
+    for wa in WORKER_ANCHORS:
+        if wa in c:
+            c = c.replace(wa, wa + WORKER_NEW_BODY, 1)
+            print("[+] apsd_rerun_work worker")
+            worker_matched = True
+            break
+    if not worker_matched:
+        print("[-] anchor not found: apsd_rerun_work worker")
+        failed = True
+
+    # 3. delayed rerun at handler
+    if RERUN_ANCHOR in c:
+        c = c.replace(RERUN_ANCHOR, RERUN_NEW, 1)
+        print("[+] delayed rerun at handler")
+    else:
+        print("[-] anchor not found: delayed rerun at handler")
+        failed = True
+
+    # 4. INIT_DELAYED_WORK in probe
+    if INIT_ANCHOR in c:
+        c = c.replace(INIT_ANCHOR, INIT_NEW, 1)
+        print("[+] INIT_DELAYED_WORK in probe")
+    else:
+        print("[-] anchor not found: INIT_DELAYED_WORK in probe")
+        failed = True
+
+    # 5. cancel on teardown
+    if CANCEL_ANCHOR in c:
+        c = c.replace(CANCEL_ANCHOR, CANCEL_NEW, 1)
+        print("[+] cancel on teardown")
+    else:
+        print("[-] anchor not found: cancel on teardown")
+        failed = True
+
     if failed:
         return 1
+
     with open(DRIVER, "w", encoding="utf-8", newline="\n") as f:
         f.write(c)
     print("[+] smb1351 delayed APSD rerun patched")

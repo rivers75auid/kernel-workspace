@@ -12,34 +12,10 @@ def patch_nt36xxx():
         if not os.path.exists(d):
             continue
 
-        # 1. Enable ESD Protect & Auto-Recovery in header
-        h_file = os.path.join(d, "nt36xxx.h")
-        if os.path.exists(h_file):
-            with open(h_file, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-            if "#define NVT_TOUCH_ESD_PROTECT 0" in content:
-                content = content.replace("#define NVT_TOUCH_ESD_PROTECT 0", "#define NVT_TOUCH_ESD_PROTECT 1")
-                with open(h_file, "w", encoding="utf-8", newline="\n") as f:
-                    f.write(content)
-                print(f"[+] Enabled NVT_TOUCH_ESD_PROTECT in {h_file}")
-
-        # 2. Patch C source: ghost touch filter, KEY_POWER for D2TW
         c_file = os.path.join(d, "nt36xxx.c")
         if os.path.exists(c_file):
             with open(c_file, "r", encoding="utf-8", errors="ignore") as f:
                 c_content = f.read()
-
-            # Filter electrical noise & bezel stray capacitance
-            target_filter = "input_w = (uint32_t)(point_data[position + 4]);"
-            repl_filter = (
-                "/* Filter electrical noise & bezel stray capacitance */\n"
-                "\t\t\tif (point_data[position + 4] == 0 && point_data[position + 5] == 0)\n"
-                "\t\t\t\tcontinue;\n"
-                "\t\t\tinput_w = (uint32_t)(point_data[position + 4]);"
-            )
-            if target_filter in c_content and "Filter electrical noise" not in c_content:
-                c_content = c_content.replace(target_filter, repl_filter, 1)
-                print(f"[+] Injected ghost touch filter in {c_file}")
 
             # Map GESTURE_DOUBLE_CLICK to KEY_POWER so Android PhoneWindowManager turns on display
             target_key = "KEY_WAKEUP,  //GESTURE_DOUBLE_CLICK"
@@ -57,18 +33,6 @@ def patch_nt36xxx():
             if target_init in c_content and "is_gesture_mode = true" not in c_content:
                 c_content = c_content.replace(target_init, repl_init, 1)
                 print(f"[+] Enabled ts->is_gesture_mode by default in {c_file}")
-
-            # Allow gesture callback to arm immediately without waiting for screen cycle
-            target_delay = (
-                "\tif (!bTouchIsAwake) {\n"
-                "\t\tts->delay_gesture = true;\n"
-                '\t\tNVT_LOG("The gesture mode will be %s the next time you wakes up.\\n", flag?"enabled":"disbaled");\n'
-                "\t\treturn 0;\n"
-                "\t}"
-            )
-            if target_delay in c_content:
-                c_content = c_content.replace(target_delay, "\t/* Arm gesture mode immediately */", 1)
-                print(f"[+] Removed bTouchIsAwake delay in gesture callback in {c_file}")
 
             with open(c_file, "w", encoding="utf-8", newline="\n") as f:
                 f.write(c_content)

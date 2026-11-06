@@ -161,7 +161,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/patches/dtc_Makefile" scripts/dtc/Makefile
 
 
-          echo "===> Enabling Novatek touchscreen ESD recovery & edge ghost-touch fix..."
+          echo "===> Configuring touchscreen DT2W key mapping and gesture sysfs..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-touch.py"
 
           echo "===> Enabling SMB1351 HVDCP_3 (Quick Charge 3.0) notification..."

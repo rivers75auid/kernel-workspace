@@ -60,6 +60,7 @@ jobs:
   build:
     name: Build Kernel (SUSFS)
     runs-on: ubuntu-22.04
+    timeout-minutes: 60
 
     steps:
       - name: Maximize Build Space
@@ -73,9 +74,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Build Environment & Dependencies
+        timeout-minutes: 6
         run: |
-          sudo apt-get update
+          export DEBIAN_FRONTEND=noninteractive
+          sudo sed -i 's/#\$nrconf{restart} = '"'"'i'"'"';/\$nrconf{restart} = '"'"'a'"'"';/g' /etc/needrestart/needrestart.conf 2>/dev/null || true
+          sudo apt-get update -y -o Acquire::Retries=3 -o Acquire::http::Timeout="30"
           sudo apt-get install -y --no-install-recommends \
+            -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+            -o Acquire::Retries=3 -o Acquire::http::Timeout="30" \
             bc \
             bison \
             build-essential \

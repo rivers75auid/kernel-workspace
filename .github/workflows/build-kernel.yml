@@ -250,13 +250,13 @@ jobs:
           echo "===> Verifikasi KSU hook mode:"
           grep -E "CONFIG_KSU" out/.config || true
 
-          echo "===> Mengompilasi Kernel..."
+          echo "===> Mengompilasi Kernel (Image.gz-dtb & dtbs)..."
           make -j$(nproc --all) ARCH=arm64 O=out \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz
+            Image.gz-dtb dtbs
 
       - name: Package with AnyKernel3
         run: |
@@ -273,13 +273,13 @@ jobs:
 
           OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
 
-          # Salin file kernel hasil build (Prioritaskan Image.gz yang sesuai arsitektur Cirno & Boot Header v3)
-          if [ -f "$OUT_DIR/Image.gz" ]; then
+          # Salin file kernel hasil build (Prioritaskan Image.gz-dtb agar 23 board DTB bengal-idp tersertakan utuh)
+          if [ -f "$OUT_DIR/Image.gz-dtb" ]; then
+            echo "Menemukan Image.gz-dtb (dengan appended DTB)"
+            cp "$OUT_DIR/Image.gz-dtb" .
+          elif [ -f "$OUT_DIR/Image.gz" ]; then
             echo "Menemukan Image.gz"
             cp "$OUT_DIR/Image.gz" .
-          elif [ -f "$OUT_DIR/Image.gz-dtb" ]; then
-            echo "Menemukan Image.gz-dtb"
-            cp "$OUT_DIR/Image.gz-dtb" .
           elif [ -f "$OUT_DIR/Image" ]; then
             echo "Menemukan Image"
             cp "$OUT_DIR/Image" .

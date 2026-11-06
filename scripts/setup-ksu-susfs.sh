@@ -6,7 +6,7 @@ cd "$GITHUB_WORKSPACE/kernel_source"
 ENABLE_KSU="${1:-true}"
 ENABLE_SUS="${2:-true}"
 SUS_VER="${3:-v2.3.0}"
-DEFCONFIG="${4:-vendor/bengal-perf_defconfig vendor/xiaomi/fog.config}"
+DEFCONFIG="${4:-vendor/fog-perf_defconfig}"
 KSU_REF="${5:-v4.2.0-rc3}"
 FIRST_DEFCONFIG=$(echo "$DEFCONFIG" | awk '{print $1}')
 DEFCONFIG_PATH="arch/arm64/configs/$FIRST_DEFCONFIG"
@@ -36,13 +36,6 @@ if [ "$ENABLE_KSU" = "true" ]; then
 
     grep -q "kernelsu" drivers/Makefile || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> drivers/Makefile
     grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-
-    echo "===> Un-static SELinux functions for ReSukiSU/BakaSU..."
-    sed -i 's/^static void security_dump_masked_av/void security_dump_masked_av/' security/selinux/ss/services.c || true
-    sed -i 's/^static void context_struct_compute_av/void context_struct_compute_av/' security/selinux/ss/services.c || true
-
-    echo "===> Disarming artificial abort checks in KernelSU tools..."
-    sed -i 's/\$(error/\$(warning/g' KernelSU/kernel/tools/*.mk 2>/dev/null || true
 
     echo "===> Menyesuaikan ReSukiSU sucompat untuk Linux 4.19..."
     python3 -c "
@@ -536,17 +529,6 @@ int ksu_handle_susfs_cmd(unsigned int cmd, void __user **arg)
 PYEOF
     python3 patch_dispatch.py && rm -f patch_dispatch.py
 
-    echo "===> Menamai ulang hook execve gaya backslashxx ke ReSukiSU (cirno-pin)..."
-    python3 -c "
-with open('fs/exec.c', 'r') as f:
-    c = f.read()
-if 'ksu_handle_execve_sucompat' in c:
-    c = c.replace('ksu_handle_execve_sucompat', 'ksu_handle_execveat_sucompat')
-    with open('fs/exec.c', 'w') as f:
-        f.write(c)
-    print('[+] fs/exec.c: ksu_handle_execve_sucompat -> ksu_handle_execveat_sucompat')
-"
-
     echo "===> Menerapkan 8 Manual Kernel Hooks untuk ReSukiSU..."
     python3 -c "
 # 1. kernel/sys.c
@@ -637,13 +619,6 @@ if target_open in c and 'ksu_handle_faccessat' not in c:
 # 5. fs/read_write.c
 with open('fs/read_write.c', 'r') as f:
     c = f.read()
-# Clean up legacy ksu_vfs_read_hook from afterimage base
-c = c.replace('extern bool ksu_vfs_read_hook __read_mostly;\n', '')
-c = c.replace('extern bool ksu_vfs_read_hook __read_mostly;', '')
-c = c.replace('if (unlikely(ksu_vfs_read_hook))\n\t\t', '')
-c = c.replace('if (unlikely(ksu_vfs_read_hook)) ', '')
-c = c.replace('ksu_vfs_read_hook', '1')
-
 target_rw = 'SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)\n{\n'
 hook_rw = '''\
 #ifdef CONFIG_KSU
@@ -655,9 +630,9 @@ hook_rw = '''\
 '''
 if target_rw in c and 'ksu_handle_sys_read' not in c:
     c = c.replace(target_rw, target_rw + hook_rw, 1)
-with open('fs/read_write.c', 'w') as f:
-    f.write(c)
-print('[+] fs/read_write.c hooked and legacy ksu_vfs_read_hook cleaned!')
+    with open('fs/read_write.c', 'w') as f:
+        f.write(c)
+    print('[+] fs/read_write.c hooked!')
 
 # 6. fs/stat.c (with native fake_ino=2 for Duck Detector)
 with open('fs/stat.c', 'r') as f:
@@ -695,13 +670,6 @@ if target_stat in c and 'ksu_handle_stat' not in c:
 # 7. drivers/input/input.c
 with open('drivers/input/input.c', 'r') as f:
     c = f.read()
-# Clean up legacy ksu_input_hook from afterimage base
-c = c.replace('extern bool ksu_input_hook __read_mostly;\n', '')
-c = c.replace('extern bool ksu_input_hook __read_mostly;', '')
-c = c.replace('if (unlikely(ksu_input_hook))\n\t\t', '')
-c = c.replace('if (unlikely(ksu_input_hook)) ', '')
-c = c.replace('ksu_input_hook', '1')
-
 target_input = 'static void input_handle_event(struct input_dev *dev,\n\t\t\t       unsigned int type, unsigned int code, int value)\n{\n'
 hook_input = '''\
 #ifdef CONFIG_KSU
@@ -713,16 +681,15 @@ hook_input = '''\
 '''
 if target_input in c and 'ksu_handle_input_handle_event' not in c:
     c = c.replace(target_input, target_input + hook_input, 1)
-with open('drivers/input/input.c', 'w') as f:
-    f.write(c)
-print('[+] drivers/input/input.c hooked and legacy ksu_input_hook cleaned!')
+    with open('drivers/input/input.c', 'w') as f:
+        f.write(c)
+    print('[+] drivers/input/input.c hooked!')
 
 # 8. security/selinux/selinuxfs.c
 with open('security/selinux/selinuxfs.c', 'r') as f:
     c = f.read()
 c = c.replace('static const struct file_operations sel_handle_status_ops = {', 'const struct file_operations sel_handle_status_ops = {', 1)
 c = c.replace('static const struct file_operations transaction_ops = {', 'const struct file_operations transaction_ops = {', 1)
-c = c.replace('static ssize_t (*const write_op[])', 'ssize_t (*const write_op[])', 1)
 with open('security/selinux/selinuxfs.c', 'w') as f:
     f.write(c)
 print('[+] security/selinux/selinuxfs.c un-static OK!')
@@ -741,156 +708,6 @@ print('[+] security/selinux/selinuxfs.c un-static OK!')
 
         echo "===> Menerapkan patch SUSFS ke kernel tree..."
         patch -p1 --forward < "$GITHUB_WORKSPACE/susfs4ksu/kernel_patches/50_add_susfs_in_kernel-4.19.patch" || echo "[WARN] Sebagian patch kernel mungkin sudah terpasang"
-
-        echo "===> Memperbaiki rejected hunks SuSFS di mount.h, sched.h, dan namespace.c..."
-        python3 -c "
-# 1. include/linux/mount.h
-with open('include/linux/mount.h', 'r') as f:
-    mh = f.read()
-if 'susfs_mnt_id_backup' not in mh:
-    mh = mh.replace('ANDROID_KABI_RESERVE(4);', '''#ifdef CONFIG_KSU_SUSFS
-	u64 susfs_mnt_id_backup;
-#endif
-	ANDROID_KABI_RESERVE(4);''', 1)
-    with open('include/linux/mount.h', 'w') as f:
-        f.write(mh)
-    print('[+] include/linux/mount.h patched for SuSFS!')
-
-# 2. include/linux/sched.h
-with open('include/linux/sched.h', 'r') as f:
-    sh = f.read()
-if 'susfs_last_fake_mnt_id' not in sh:
-    sh = sh.replace('ANDROID_KABI_RESERVE(8);', '''#ifdef CONFIG_KSU_SUSFS
-	u64 susfs_last_fake_mnt_id;
-#endif
-	ANDROID_KABI_RESERVE(8);''', 1)
-    with open('include/linux/sched.h', 'w') as f:
-        f.write(sh)
-    print('[+] include/linux/sched.h patched for SuSFS!')
-
-# 3. fs/namespace.c
-with open('fs/namespace.c', 'r') as f:
-    ns = f.read()
-if 'DEFINE_IDA(susfs_mnt_id_ida)' not in ns:
-    target_ns = '#include \"internal.h\"\n'
-    repl_ns = '''#include \"internal.h\"
-
-#if defined(CONFIG_KSU_SUSFS_SUS_MOUNT) || defined(CONFIG_KSU_SUSFS_TRY_UMOUNT)
-#include <linux/susfs_def.h>
-#endif
-
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-extern bool susfs_is_current_ksu_domain(void);
-extern bool susfs_is_current_zygote_domain(void);
-
-static DEFINE_IDA(susfs_mnt_id_ida);
-static DEFINE_IDA(susfs_mnt_group_ida);
-
-#define CL_ZYGOTE_COPY_MNT_NS BIT(24) /* used by copy_mnt_ns() */
-#define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */
-#endif
-
-#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT
-extern void susfs_auto_add_sus_ksu_default_mount(const char __user *to_pathname);
-bool susfs_is_auto_add_sus_ksu_default_mount_enabled = true;
-#endif
-#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT
-extern int susfs_auto_add_sus_bind_mount(const char *pathname, struct path *path_target);
-bool susfs_is_auto_add_sus_bind_mount_enabled = true;
-#endif
-#ifdef CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT
-extern void susfs_auto_add_try_umount_for_bind_mount(struct path *path);
-bool susfs_is_auto_add_try_umount_for_bind_mount_enabled = true;
-#endif
-'''
-    ns = ns.replace(target_ns, repl_ns, 1)
-
-# Fix alloc_vfsmnt in vfs_create_mount()
-vfs_create_orig = 'mnt = alloc_vfsmnt(fc->source ?: \"none\");'
-vfs_create_repl = '''#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-\tif (unlikely(susfs_is_current_ksu_domain())) {
-\t\tmnt = alloc_vfsmnt(fc->source ?: \"none\", true, 0);
-\t\tgoto bypass_orig_flow;
-\t}
-\tmnt = alloc_vfsmnt(fc->source ?: \"none\", false, 0);
-bypass_orig_flow:
-#else
-\tmnt = alloc_vfsmnt(fc->source ?: \"none\");
-#endif'''
-if vfs_create_orig in ns:
-    ns = ns.replace(vfs_create_orig, vfs_create_repl, 1)
-
-# Add zygote fake_mnt_id in vfs_create_mount()
-vfs_parent = 'mnt->mnt_parent\t\t= mnt;'
-vfs_parent_repl = '''mnt->mnt_parent\t\t= mnt;
-
-#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-\tif (susfs_is_current_zygote_domain()) {
-\t\tmnt->mnt.susfs_mnt_id_backup = mnt->mnt_id;
-\t\tmnt->mnt_id = current->susfs_last_fake_mnt_id++;
-\t}
-#endif'''
-if vfs_parent in ns and 'susfs_last_fake_mnt_id' not in ns:
-    ns = ns.replace(vfs_parent, vfs_parent_repl, 1)
-
-# Fix alloc_vfsmnt in clone_mnt()
-clone_orig = 'mnt = alloc_vfsmnt(old->mnt_devname);'
-clone_repl = '''#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-\tbool is_current_ksu_domain = susfs_is_current_ksu_domain();
-\tbool is_current_zygote_domain = susfs_is_current_zygote_domain();
-
-\tif (unlikely(is_current_ksu_domain)) {
-\t\tif (!(flag & CL_COPY_MNT_NS)) {
-\t\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);
-\t\t\tgoto bypass_orig_flow_clone;
-\t\t}
-\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, old->mnt_id);
-\t\tif (mnt) {
-\t\t\tmnt->mnt.susfs_mnt_id_backup = DEFAULT_SUS_MNT_ID_FOR_KSU_PROC_UNSHARE;
-\t\t}
-\t\tgoto bypass_orig_flow_clone;
-\t}
-\tif (likely(is_current_zygote_domain) && (old->mnt_id >= DEFAULT_SUS_MNT_ID)) {
-\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);
-\t\tgoto bypass_orig_flow_clone;
-\t}
-\tif ((flag & CL_COPY_MNT_NS) && (old->mnt_id >= DEFAULT_SUS_MNT_ID)) {
-\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);
-\t\tgoto bypass_orig_flow_clone;
-\t}
-\tmnt = alloc_vfsmnt(old->mnt_devname, false, 0);
-bypass_orig_flow_clone:
-#else
-\tmnt = alloc_vfsmnt(old->mnt_devname);
-#endif'''
-if clone_orig in ns:
-    ns = ns.replace(clone_orig, clone_repl, 1)
-
-with open('fs/namespace.c', 'w') as f:
-    f.write(ns)
-print('[+] fs/namespace.c patched for SuSFS!')
-
-# 4. kernel/sys.c (uname spoofing)
-with open('kernel/sys.c', 'r') as f:
-    sys_c = f.read()
-if 'susfs_spoof_uname' not in sys_c:
-    uname_target = 'SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)'
-    uname_repl = '''#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
-extern void susfs_spoof_uname(struct new_utsname* tmp);
-#endif
-SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)'''
-    sys_c = sys_c.replace(uname_target, uname_repl, 1)
-    
-    memcpy_target = 'memcpy(&tmp, utsname(), sizeof(tmp));'
-    memcpy_repl = '''memcpy(&tmp, utsname(), sizeof(tmp));
-#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
-\tsusfs_spoof_uname(&tmp);
-#endif'''
-    sys_c = sys_c.replace(memcpy_target, memcpy_repl, 1)
-    with open('kernel/sys.c', 'w') as f:
-        f.write(sys_c)
-    print('[+] kernel/sys.c patched for SuSFS uname spoofing!')
-"
 
         echo "===> Menambahkan susfs_extra_works dan sdcard monitor ke fs/susfs.c..."
         python3 -c "

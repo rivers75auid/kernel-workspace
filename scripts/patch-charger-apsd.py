@@ -16,7 +16,14 @@ STRUCT_ANCHOR = "\tstruct delayed_work\thvdcp_det_work;"
 STRUCT_NEW = (STRUCT_ANCHOR +
     "\n\tstruct delayed_work\tapsd_rerun_work;")
 
-WORKER_NEW_BODY = (
+WORKER_ANCHOR = (
+    "\tif (rc)\n"
+    "\t\tpr_err(\"Couldn't re-run APSD algo\\n\");\n"
+    "\n"
+    "\treturn 0;\n"
+    "}\n"
+)
+WORKER_NEW = WORKER_ANCHOR + (
     "\n"
     "/* Delayed rerun: see smb1351_apsd_rerun_work() comment. */\n"
     "static void smb1351_apsd_rerun_work(struct work_struct *work)\n"
@@ -30,20 +37,6 @@ WORKER_NEW_BODY = (
     "\tpm_relax(chip->dev);\n"
     "}\n"
 )
-
-
-def _rerun_apsd_tail(logfn):
-    """Tail of rerun_apsd(); the tree variant logs via pr_err or pr_debug."""
-    return (
-        "\tif (rc)\n"
-        f"\t\t{logfn}(\"Couldn't re-run APSD algo\\n\");\n"
-        "\n"
-        "\treturn 0;\n"
-        "}\n"
-    )
-
-
-WORKER_ANCHORS = (_rerun_apsd_tail("pr_err"), _rerun_apsd_tail("pr_debug"))
 
 RERUN_ANCHOR = (
     "\t\t\t\tchip->apsd_rerun = true;\n"
@@ -66,7 +59,7 @@ CANCEL_NEW = (CANCEL_ANCHOR +
 
 EDITS = [
     ("struct apsd_rerun_work field", STRUCT_ANCHOR, STRUCT_NEW),
-    ("apsd_rerun_work worker", WORKER_ANCHORS, lambda anchor: anchor + WORKER_NEW_BODY),
+    ("apsd_rerun_work worker", WORKER_ANCHOR, WORKER_NEW),
     ("delayed rerun at handler", RERUN_ANCHOR, RERUN_NEW),
     ("INIT_DELAYED_WORK in probe", INIT_ANCHOR, INIT_NEW),
     ("cancel on teardown", CANCEL_ANCHOR, CANCEL_NEW),
@@ -84,13 +77,11 @@ def main():
         return 0
     failed = False
     for name, old, new in EDITS:
-        candidates = old if isinstance(old, tuple) else (old,)
-        anchor = next((a for a in candidates if a in c), None)
-        if anchor is None:
+        if old not in c:
             print(f"[-] anchor not found: {name}")
             failed = True
             continue
-        c = c.replace(anchor, new(anchor) if callable(new) else new, 1)
+        c = c.replace(old, new, 1)
         print(f"[+] {name}")
     if failed:
         return 1

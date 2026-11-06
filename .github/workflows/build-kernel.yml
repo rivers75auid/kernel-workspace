@@ -10,11 +10,11 @@ on:
       KERNEL_REPO:
         description: 'Kernel Source Repository (owner/repo)'
         required: true
-        default: 'rivers75auid/kernel_xiaomi_sm6225'
+        default: 'alternoegraha/kernel_xiaomi_sm6225'
       KERNEL_BRANCH:
         description: 'Kernel Source Branch'
         required: true
-        default: 'cirno-pin'
+        default: 'fog'
       DEFCONFIG:
         description: 'Defconfig name'
         required: true
@@ -110,9 +110,9 @@ jobs:
       - name: Clone Kernel Source
         run: |
           REPO="${{ github.event.inputs.KERNEL_REPO }}"
-          [ -z "$REPO" ] && REPO="rivers75auid/kernel_xiaomi_sm6225"
+          [ -z "$REPO" ] && REPO="alternoegraha/kernel_xiaomi_sm6225"
           BRANCH="${{ github.event.inputs.KERNEL_BRANCH }}"
-          [ -z "$BRANCH" ] && BRANCH="cirno-pin"
+          [ -z "$BRANCH" ] && BRANCH="fog"
 
           echo "===> Cloning Canonical Kernel Source from $REPO ($BRANCH)..."
           git clone --depth=1 "https://github.com/$REPO.git" -b "$BRANCH" "$GITHUB_WORKSPACE/kernel_source"
@@ -151,12 +151,8 @@ jobs:
           echo "# CONFIG_TOUCHSCREEN_NT36XXX is not set" >> "$DEFCONFIG_PATH"
           echo "# CONFIG_TOUCHSCREEN_FTS is not set" >> "$DEFCONFIG_PATH"
 
-          # Dedupe yamltree.o only when actually duplicated (old fog trees).
-          # cirno-pin ships a clean -DNO_YAML dtc Makefile that must NOT be touched.
-          if [ "$(grep -c 'yamltree' scripts/dtc/Makefile 2>/dev/null || echo 0)" -gt 1 ]; then
-            echo "===> Deduplicating yamltree.o in scripts/dtc/Makefile..."
-            sed -i '/yamltree/d' scripts/dtc/Makefile
-          fi
+          echo "===> Fixing yamltree.o duplicate & hostprogs in scripts/dtc/Makefile..."
+          cp "$GITHUB_WORKSPACE/patches/dtc_Makefile" scripts/dtc/Makefile
 
           echo "===> Fixing MemAvailable overflow / MGLRU counter leak..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-memavailable.py"
@@ -185,6 +181,9 @@ jobs:
             sed -i '/CONFIG_DEFAULT_IOSCHED/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_DEFAULT_CFQ/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_DEFAULT_WESTWOOD/d' "$DEFCONFIG_PATH"
+            sed -i '/CONFIG_NET_ACT_/d' "$DEFCONFIG_PATH"
+            sed -i '/CONFIG_BUILD_ARM64_DT_OVERLAY/d' "$DEFCONFIG_PATH"
+            echo "# CONFIG_BUILD_ARM64_DT_OVERLAY is not set" >> "$DEFCONFIG_PATH"
             cat "$GITHUB_WORKSPACE/configs/potato.config" >> "$DEFCONFIG_PATH"
           fi
 
@@ -222,6 +221,10 @@ jobs:
             --disable DEFAULT_CFQ \
             --enable DEFAULT_BBR \
             --disable DEFAULT_WESTWOOD \
+            --enable NET_ACT_BPF \
+            --enable NET_ACT_POLICE \
+            --enable NET_ACT_CONNMARK \
+            --disable BUILD_ARM64_DT_OVERLAY \
             --enable KALLSYMS \
             --enable KALLSYMS_ALL \
             --disable TOUCHSCREEN_NT36XXX \
@@ -246,7 +249,7 @@ jobs:
           yes "" | make -j$(nproc --all) ARCH=arm64 O=out olddefconfig
 
           echo "===> Verifikasi hasil konfigurasi kritis:"
-          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_WALT|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG" out/.config
+          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_WALT|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_BUILD_ARM64_DT_OVERLAY" out/.config || true
           echo "===> Verifikasi KSU hook mode:"
           grep -E "CONFIG_KSU" out/.config || true
 

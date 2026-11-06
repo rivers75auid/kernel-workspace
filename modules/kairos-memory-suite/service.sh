@@ -95,6 +95,16 @@ elif [ -e /sys/class/power_supply/battery/input_suspend ]; then
   CH_OFF=1
 fi
 
+# [AG] Hotspot & SoftAP Tethering Safeguard (Android 16 SELinux & netd/dnsmasq)
+if command -v ksud >/dev/null 2>&1; then
+  ksud sepolicy apply - << 'EOF' 2>/dev/null
+allow netd dnsmasq_exec file { getattr open read execute execute_no_trans entrypoint }
+allow netd self capability { setgid setuid net_admin net_raw net_bind_service }
+allow netd self capability2 { wake_alarm block_suspend }
+permissive netd
+EOF
+fi
+
 # Background supervisor loop
 (
   thermal_cut=0

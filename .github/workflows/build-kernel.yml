@@ -215,12 +215,14 @@ jobs:
             make -j$(nproc --all) ARCH=arm64 O=out $cfg
           done
 
-          echo "===> Memaksa opsi WALT, Schedutil, CFQ/BFQ & BBR langsung di out/.config via scripts/config..."
+          echo "===> Memaksa opsi CASS, Schedutil, CFQ/BFQ & BBR langsung di out/.config via scripts/config..."
           ./scripts/config --file out/.config \
             --enable CPU_FREQ_DEFAULT_GOV_SCHEDUTIL \
             --disable CPU_FREQ_DEFAULT_GOV_PERFORMANCE \
-            --enable SCHED_WALT \
-            --enable SCHED_CORE_CTL \
+            --disable SCHED_WALT \
+            --disable SCHED_CORE_CTL \
+            --enable SCHED_CASS \
+            --enable PELT_COMPATIBILITY_LAYER \
             --enable DEFAULT_CFQ \
             --enable DEFAULT_BBR \
             --disable DEFAULT_WESTWOOD \
@@ -248,7 +250,7 @@ jobs:
           yes "" | make -j$(nproc --all) ARCH=arm64 O=out olddefconfig
 
           echo "===> Verifikasi hasil konfigurasi kritis:"
-          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_WALT|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_ANDROID_PARANOID_NETWORK" out/.config || true
+          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_CASS|CONFIG_PELT_COMPATIBILITY_LAYER|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_ANDROID_PARANOID_NETWORK" out/.config || true
           echo "===> Verifikasi KSU hook mode:"
           grep -E "CONFIG_KSU" out/.config || true
 

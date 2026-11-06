@@ -667,7 +667,7 @@ with open('fs/read_write.c', 'w') as f:
     f.write(c)
 print('[+] fs/read_write.c hooked and legacy ksu_vfs_read_hook cleaned!')
 
-# 6. fs/stat.c (with native fake_ino=2 for Duck Detector)
+# 6. fs/stat.c
 with open('fs/stat.c', 'r') as f:
     c = f.read()
 target_stat = 'SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,\n\t\tstruct stat __user *, statbuf, int, flag)\n{\n\tstruct kstat stat;\n\tint error;\n\n'
@@ -679,23 +679,8 @@ hook_stat = '''\
 	}
 #endif
 '''
-stat_err_check = 'if (error)\n\t\treturn error;\n'
-hook_spoof_ino = '''if (error)
-		return error;
-#ifdef CONFIG_KSU
-	if (filename) {
-		char pbuf[32];
-		if (strncpy_from_user_nofault(pbuf, filename, sizeof(pbuf)) > 0) {
-			if (!strcmp(pbuf, "/data/local/tmp") || !strcmp(pbuf, "/data/local/tmp/")) {
-				stat.ino = 2;
-			}
-		}
-	}
-#endif
-'''
 if target_stat in c and 'ksu_handle_stat' not in c:
     c = c.replace(target_stat, target_stat + hook_stat, 1)
-    c = c.replace(stat_err_check, hook_spoof_ino, 1)
     with open('fs/stat.c', 'w') as f:
         f.write(c)
     print('[+] fs/stat.c hooked!')

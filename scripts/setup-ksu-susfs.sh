@@ -536,15 +536,23 @@ int ksu_handle_susfs_cmd(unsigned int cmd, void __user **arg)
 PYEOF
     python3 patch_dispatch.py && rm -f patch_dispatch.py
 
-    echo "===> Menamai ulang hook execve gaya backslashxx ke ReSukiSU (cirno-pin)..."
+    echo "===> Membersihkan hook usang backslashxx di fs/exec.c (ReSukiSU memakai hook resmi do_execveat_common)..."
     python3 -c "
+import re
 with open('fs/exec.c', 'r') as f:
     c = f.read()
-if 'ksu_handle_execve_sucompat' in c:
-    c = c.replace('ksu_handle_execve_sucompat', 'ksu_handle_execveat_sucompat')
-    with open('fs/exec.c', 'w') as f:
-        f.write(c)
-    print('[+] fs/exec.c: ksu_handle_execve_sucompat -> ksu_handle_execveat_sucompat')
+
+# 1. Hapus deklarasi extern ksu_handle_execve_sucompat / ksu_handle_execveat_sucompat
+c = re.sub(r'#ifdef CONFIG_KSU\s+__attribute__\(\(hot\)\)\s+extern int ksu_handle_execve[^\)]*\);\s*#endif\s*', '', c, flags=re.DOTALL)
+c = re.sub(r'extern int ksu_handle_execve(?:at)?_sucompat[^\n;]*;\s*', '', c)
+
+# 2. Hapus panggilan hook lama di SYSCALL_DEFINE3(execve) dan COMPAT_SYSCALL_DEFINE3(execve)
+c = re.sub(r'#ifdef CONFIG_KSU[^\n]*?\n\s*ksu_handle_execve.*?#endif\s*', '', c, flags=re.DOTALL)
+c = re.sub(r'ksu_handle_execve(?:at)?_sucompat[^\n;]*;\s*', '', c)
+
+with open('fs/exec.c', 'w') as f:
+    f.write(c)
+print('[+] fs/exec.c: hook usang ksu_handle_execve_sucompat berhasil dibersihkan!')
 "
 
     echo "===> Menerapkan 8 Manual Kernel Hooks untuk ReSukiSU..."

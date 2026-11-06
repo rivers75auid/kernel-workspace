@@ -184,6 +184,8 @@ jobs:
             sed -i '/CONFIG_NET_ACT_/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_BUILD_ARM64_DT_OVERLAY/d' "$DEFCONFIG_PATH"
             echo "# CONFIG_BUILD_ARM64_DT_OVERLAY is not set" >> "$DEFCONFIG_PATH"
+            sed -i '/CONFIG_ANDROID_PARANOID_NETWORK/d' "$DEFCONFIG_PATH"
+            echo "# CONFIG_ANDROID_PARANOID_NETWORK is not set" >> "$DEFCONFIG_PATH"
             cat "$GITHUB_WORKSPACE/configs/potato.config" >> "$DEFCONFIG_PATH"
           fi
 
@@ -225,6 +227,9 @@ jobs:
             --enable NET_ACT_POLICE \
             --enable NET_ACT_CONNMARK \
             --disable BUILD_ARM64_DT_OVERLAY \
+            --disable ANDROID_PARANOID_NETWORK \
+            --enable CRYPTO_CHACHA20POLY1305 \
+            --enable XFRM_MIGRATE \
             --enable KALLSYMS \
             --enable KALLSYMS_ALL \
             --disable TOUCHSCREEN_NT36XXX \
@@ -249,7 +254,7 @@ jobs:
           yes "" | make -j$(nproc --all) ARCH=arm64 O=out olddefconfig
 
           echo "===> Verifikasi hasil konfigurasi kritis:"
-          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_WALT|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_BUILD_ARM64_DT_OVERLAY" out/.config || true
+          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_WALT|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_BUILD_ARM64_DT_OVERLAY|CONFIG_ANDROID_PARANOID_NETWORK" out/.config || true
           echo "===> Verifikasi KSU hook mode:"
           grep -E "CONFIG_KSU" out/.config || true
 

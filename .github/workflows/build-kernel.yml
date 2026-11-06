@@ -173,18 +173,13 @@ jobs:
           python3 "$GITHUB_WORKSPACE/scripts/patch-vm-sched.py"
 
           if [ "$OPT_POTATO" = "true" ]; then
-            echo "===> Enabling Potato Tuning Suite (EAS/Schedtune, Anxiety, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
-            # Strip competing Kconfig choice defaults & legacy WALT so potato.config wins cleanly
-            sed -i '/CONFIG_SCHED_WALT/d' "$DEFCONFIG_PATH"
-            sed -i '/CONFIG_SCHED_CORE_CTL/d' "$DEFCONFIG_PATH"
+            echo "===> Enabling Potato Tuning Suite (WALT/Schedtune, CFQ/BFQ, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
+            # Strip competing Kconfig choice defaults so potato.config wins cleanly
             sed -i '/CONFIG_CPU_FREQ_DEFAULT_GOV/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_DEFAULT_IOSCHED/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_DEFAULT_CFQ/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_DEFAULT_WESTWOOD/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_NET_ACT_/d' "$DEFCONFIG_PATH"
-            # Pastikan CONFIG_BUILD_ARM64_DT_OVERLAY=y aktif agar menghasilkan dtbo.img untuk Redmi 10C
-            sed -i '/CONFIG_BUILD_ARM64_DT_OVERLAY/d' "$DEFCONFIG_PATH"
-            echo "CONFIG_BUILD_ARM64_DT_OVERLAY=y" >> "$DEFCONFIG_PATH"
             sed -i '/CONFIG_ANDROID_PARANOID_NETWORK/d' "$DEFCONFIG_PATH"
             echo "# CONFIG_ANDROID_PARANOID_NETWORK is not set" >> "$DEFCONFIG_PATH"
             cat "$GITHUB_WORKSPACE/configs/potato.config" >> "$DEFCONFIG_PATH"
@@ -214,20 +209,18 @@ jobs:
             make -j$(nproc --all) ARCH=arm64 O=out $cfg
           done
 
-          echo "===> Memaksa opsi EAS, Schedutil, Anxiety/BFQ & BBR langsung di out/.config via scripts/config..."
+          echo "===> Memaksa opsi WALT, Schedutil, CFQ/BFQ & BBR langsung di out/.config via scripts/config..."
           ./scripts/config --file out/.config \
             --enable CPU_FREQ_DEFAULT_GOV_SCHEDUTIL \
             --disable CPU_FREQ_DEFAULT_GOV_PERFORMANCE \
-            --disable SCHED_WALT \
-            --disable SCHED_CORE_CTL \
-            --enable ENERGY_MODEL \
-            --disable DEFAULT_CFQ \
+            --enable SCHED_WALT \
+            --enable SCHED_CORE_CTL \
+            --enable DEFAULT_CFQ \
             --enable DEFAULT_BBR \
             --disable DEFAULT_WESTWOOD \
             --enable NET_ACT_BPF \
             --enable NET_ACT_POLICE \
             --enable NET_ACT_CONNMARK \
-            --enable BUILD_ARM64_DT_OVERLAY \
             --disable ANDROID_PARANOID_NETWORK \
             --enable CRYPTO_CHACHA20POLY1305 \
             --enable XFRM_MIGRATE \
@@ -235,12 +228,6 @@ jobs:
             --enable KALLSYMS_ALL \
             --disable TOUCHSCREEN_NT36XXX \
             --disable TOUCHSCREEN_FTS
-
-          if grep -q "CONFIG_IOSCHED_ANXIETY=y" out/.config 2>/dev/null; then
-            ./scripts/config --file out/.config --enable DEFAULT_ANXIETY
-          elif grep -q "CONFIG_IOSCHED_BFQ=y" out/.config 2>/dev/null; then
-            ./scripts/config --file out/.config --enable DEFAULT_BFQ
-          fi
 
           # Resolve semua NEW symbols non-interaktif sebelum build,
           # agar syncconfig tidak Restart config dan mereset opsi kita
@@ -255,7 +242,7 @@ jobs:
           yes "" | make -j$(nproc --all) ARCH=arm64 O=out olddefconfig
 
           echo "===> Verifikasi hasil konfigurasi kritis:"
-          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_WALT|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_BUILD_ARM64_DT_OVERLAY|CONFIG_ANDROID_PARANOID_NETWORK" out/.config || true
+          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_WALT|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_ANDROID_PARANOID_NETWORK" out/.config || true
           echo "===> Verifikasi KSU hook mode:"
           grep -E "CONFIG_KSU" out/.config || true
 
@@ -265,7 +252,7 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz dtbo.img dtb.img
+            Image.gz
 
       - name: Package with AnyKernel3
         run: |
@@ -297,11 +284,8 @@ jobs:
             exit 1
           fi
 
-          # Salin dtbo.img (Wajib untuk Redmi 10C / SM6225 agar tidak bootloop)
-          if [ -f "$OUT_DIR/dtbo.img" ]; then
-            echo "Menemukan dtbo.img, menyalin ke AnyKernel3..."
-            cp "$OUT_DIR/dtbo.img" .
-          fi
+          # JANGAN salin dtbo.img ke AnyKernel3 agar partisi dtbo fisik OEM tidak tertimpa dan terhindar dari hardbrick!
+          echo "===> Proteksi DTBO Aktif: Melewati dtbo.img agar partisi fisik tidak tertimpa!"
 
           # Bundle built-in Kairos RAM Management module directly into AnyKernel3 zip
           echo "===> Bundling Built-in Kairos RAM Management into Kernel zip..."

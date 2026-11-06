@@ -184,8 +184,6 @@ jobs:
             sed -i '/CONFIG_NET_ACT_/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_ANDROID_PARANOID_NETWORK/d' "$DEFCONFIG_PATH"
             echo "# CONFIG_ANDROID_PARANOID_NETWORK is not set" >> "$DEFCONFIG_PATH"
-            sed -i '/CONFIG_BUILD_ARM64_DT_OVERLAY/d' "$DEFCONFIG_PATH"
-            echo "# CONFIG_BUILD_ARM64_DT_OVERLAY is not set" >> "$DEFCONFIG_PATH"
             cat "$GITHUB_WORKSPACE/configs/potato.config" >> "$DEFCONFIG_PATH"
           fi
 
@@ -234,7 +232,6 @@ jobs:
             --enable KALLSYMS_ALL \
             --disable TOUCHSCREEN_NT36XXX \
             --disable TOUCHSCREEN_FTS \
-            --disable BUILD_ARM64_DT_OVERLAY
 
           # Resolve semua NEW symbols non-interaktif sebelum build,
           # agar syncconfig tidak Restart config dan mereset opsi kita
@@ -253,24 +250,28 @@ jobs:
           echo "===> Verifikasi KSU hook mode:"
           grep -E "CONFIG_KSU" out/.config || true
 
-          echo "===> Mengompilasi Kernel (Image.gz-dtb & dtbs)..."
+          echo "===> Mengompilasi Kernel (Image.gz & dtbo.img)..."
           make -j$(nproc --all) ARCH=arm64 O=out \
             CC=clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz-dtb dtbs
+            Image.gz dtbo.img
 
           OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
-          echo "===> Verifikasi Biner DTB Redmi 10C (fog / bengal-idp)..."
-          DTB_COUNT=$(grep -a -c "bengal-idp" "$OUT_DIR/Image.gz-dtb" || true)
-          DTB_SIZE=$(stat -c %s "$OUT_DIR/Image.gz-dtb")
-          echo "Image.gz-dtb Size: $DTB_SIZE bytes | bengal-idp count: $DTB_COUNT"
-          if [ "$DTB_COUNT" -lt 1 ]; then
-            echo "[-] FATAL: Image.gz-dtb tidak memiliki DTB bengal-idp! (Ukuran hanya $DTB_SIZE). Membatalkan build agar tidak bootloop!"
+          echo "===> Verifikasi Biner Kernel & DTBO Redmi 10C (fog / khaje)..."
+          IMG_SIZE=$(stat -c %s "$OUT_DIR/Image.gz" 2>/dev/null || echo 0)
+          DTBO_SIZE=$(stat -c %s "$OUT_DIR/dtbo.img" 2>/dev/null || echo 0)
+          echo "Image.gz Size: $IMG_SIZE bytes | dtbo.img Size: $DTBO_SIZE bytes"
+          if [ "$IMG_SIZE" -lt 10000000 ]; then
+            echo "[-] FATAL: Image.gz terlalu kecil ($IMG_SIZE bytes)! Membatalkan build."
             exit 1
           fi
-          echo "[+] VERIFIKASI LOLOS: $DTB_COUNT board DTB terdeteksi di Image.gz-dtb ($DTB_SIZE bytes)!"
+          if [ "$DTBO_SIZE" -lt 8000000 ]; then
+            echo "[-] FATAL: dtbo.img hilang atau tidak lengkap ($DTBO_SIZE bytes)! Membatalkan build."
+            exit 1
+          fi
+          echo "[+] VERIFIKASI LOLOS: Image.gz ($IMG_SIZE bytes) dan dtbo.img ($DTBO_SIZE bytes) siap dikemas!"
 
       - name: Package with AnyKernel3
         run: |
@@ -287,25 +288,25 @@ jobs:
 
           OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
 
-          # Salin file kernel hasil build (Prioritaskan Image.gz-dtb agar 23 board DTB bengal-idp tersertakan utuh)
-          if [ -f "$OUT_DIR/Image.gz-dtb" ]; then
-            echo "Menemukan Image.gz-dtb (dengan appended DTB)"
-            cp "$OUT_DIR/Image.gz-dtb" .
-          elif [ -f "$OUT_DIR/Image.gz" ]; then
+          # Salin file kernel & dtbo hasil build (Sesuai arsitektur resmi Cirno: Image.gz + dtbo.img)
+          if [ -f "$OUT_DIR/Image.gz" ]; then
             echo "Menemukan Image.gz"
             cp "$OUT_DIR/Image.gz" .
-          elif [ -f "$OUT_DIR/Image" ]; then
-            echo "Menemukan Image"
-            cp "$OUT_DIR/Image" .
           else
-            echo "ERROR: Tidak ditemukan Image hasil kompilasi!"
+            echo "ERROR: Image.gz tidak ditemukan!"
             exit 1
           fi
 
-          # JANGAN salin dtbo.img ke AnyKernel3 agar partisi dtbo fisik OEM tidak tertimpa dan terhindar dari hardbrick!
-          echo "===> Proteksi DTBO Aktif: Melewati dtbo.img agar partisi fisik tidak tertimpa!"
+          if [ -f "$OUT_DIR/dtbo.img" ]; then
+            echo "Menemukan dtbo.img (Cirno board overlays)"
+            cp "$OUT_DIR/dtbo.img" .
+          else
+            echo "ERROR: dtbo.img tidak ditemukan!"
+            exit 1
+          fi
 
-          # Bundle built-in Kairos RAM Management module directly into AnyKernel3 zip
+          echo "===> AnyKernel3: Menyertakan Image.gz dan dtbo.img sesuai arsitektur resmi Cirno..."
+
           DATE=$(date +'%Y%m%d-%H%M')
           ZIP_NAME="${KNAME}-SUSFS-Potato-fog-${DATE}.zip"
           zip -r9 "$ZIP_NAME" * -x .git README.md *placeholder

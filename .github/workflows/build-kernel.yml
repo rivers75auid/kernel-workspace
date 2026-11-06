@@ -160,8 +160,6 @@ jobs:
           echo "===> Fixing yamltree.o duplicate & hostprogs in scripts/dtc/Makefile..."
           cp "$GITHUB_WORKSPACE/patches/dtc_Makefile" scripts/dtc/Makefile
 
-          echo "===> Fixing MemAvailable overflow / MGLRU counter leak..."
-          python3 "$GITHUB_WORKSPACE/scripts/patch-memavailable.py"
 
           echo "===> Enabling Novatek touchscreen ESD recovery & edge ghost-touch fix..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-touch.py"
@@ -175,8 +173,6 @@ jobs:
           echo "===> Fixing first-plug QC misclassification (delayed APSD rerun)..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-charger-apsd.py"
 
-          echo "===> Baking Native In-Kernel VM, ZRAM & Schedutil Defaults (No Scripts / Rootless)..."
-          python3 "$GITHUB_WORKSPACE/scripts/patch-vm-sched.py"
 
           if [ "$OPT_POTATO" = "true" ]; then
             echo "===> Enabling Potato Tuning Suite (WALT/Schedtune, CFQ/BFQ, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
@@ -296,10 +292,6 @@ jobs:
           echo "===> Proteksi DTBO Aktif: Melewati dtbo.img agar partisi fisik tidak tertimpa!"
 
           # Bundle built-in Kairos RAM Management module directly into AnyKernel3 zip
-          echo "===> Bundling Built-in Kairos RAM Management into Kernel zip..."
-          mkdir -p kairos-module
-          cp -af "$GITHUB_WORKSPACE/modules/kairos-memory-suite"/* kairos-module/
-
           DATE=$(date +'%Y%m%d-%H%M')
           ZIP_NAME="${KNAME}-SUSFS-Potato-fog-${DATE}.zip"
           zip -r9 "$ZIP_NAME" * -x .git README.md *placeholder

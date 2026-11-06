@@ -184,6 +184,8 @@ jobs:
             sed -i '/CONFIG_NET_ACT_/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_ANDROID_PARANOID_NETWORK/d' "$DEFCONFIG_PATH"
             echo "# CONFIG_ANDROID_PARANOID_NETWORK is not set" >> "$DEFCONFIG_PATH"
+            sed -i '/CONFIG_BUILD_ARM64_DT_OVERLAY/d' "$DEFCONFIG_PATH"
+            echo "# CONFIG_BUILD_ARM64_DT_OVERLAY is not set" >> "$DEFCONFIG_PATH"
             cat "$GITHUB_WORKSPACE/configs/potato.config" >> "$DEFCONFIG_PATH"
           fi
 
@@ -231,7 +233,8 @@ jobs:
             --enable KALLSYMS \
             --enable KALLSYMS_ALL \
             --disable TOUCHSCREEN_NT36XXX \
-            --disable TOUCHSCREEN_FTS
+            --disable TOUCHSCREEN_FTS \
+            --disable BUILD_ARM64_DT_OVERLAY
 
           # Resolve semua NEW symbols non-interaktif sebelum build,
           # agar syncconfig tidak Restart config dan mereset opsi kita
@@ -257,6 +260,17 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             Image.gz-dtb dtbs
+
+          OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
+          echo "===> Verifikasi Biner DTB Redmi 10C (fog / bengal-idp)..."
+          DTB_COUNT=$(grep -a -c "bengal-idp" "$OUT_DIR/Image.gz-dtb" || true)
+          DTB_SIZE=$(stat -c %s "$OUT_DIR/Image.gz-dtb")
+          echo "Image.gz-dtb Size: $DTB_SIZE bytes | bengal-idp count: $DTB_COUNT"
+          if [ "$DTB_COUNT" -lt 1 ]; then
+            echo "[-] FATAL: Image.gz-dtb tidak memiliki DTB bengal-idp! (Ukuran hanya $DTB_SIZE). Membatalkan build agar tidak bootloop!"
+            exit 1
+          fi
+          echo "[+] VERIFIKASI LOLOS: $DTB_COUNT board DTB terdeteksi di Image.gz-dtb ($DTB_SIZE bytes)!"
 
       - name: Package with AnyKernel3
         run: |

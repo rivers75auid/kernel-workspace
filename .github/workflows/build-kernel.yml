@@ -10,11 +10,11 @@ on:
       KERNEL_REPO:
         description: 'Kernel Source Repository (owner/repo)'
         required: true
-        default: 'alternoegraha/kernel_xiaomi_sm6225'
+        default: 'rivers75auid/kernel_xiaomi_sm6225'
       KERNEL_BRANCH:
         description: 'Kernel Source Branch'
         required: true
-        default: 'fog'
+        default: 'cirno-pin'
       DEFCONFIG:
         description: 'Defconfig name'
         required: true
@@ -110,9 +110,9 @@ jobs:
       - name: Clone Kernel Source
         run: |
           REPO="${{ github.event.inputs.KERNEL_REPO }}"
-          [ -z "$REPO" ] && REPO="alternoegraha/kernel_xiaomi_sm6225"
+          [ -z "$REPO" ] && REPO="rivers75auid/kernel_xiaomi_sm6225"
           BRANCH="${{ github.event.inputs.KERNEL_BRANCH }}"
-          [ -z "$BRANCH" ] && BRANCH="fog"
+          [ -z "$BRANCH" ] && BRANCH="cirno-pin"
 
           echo "===> Cloning Canonical Kernel Source from $REPO ($BRANCH)..."
           git clone --depth=1 "https://github.com/$REPO.git" -b "$BRANCH" "$GITHUB_WORKSPACE/kernel_source"
@@ -182,8 +182,9 @@ jobs:
             sed -i '/CONFIG_DEFAULT_CFQ/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_DEFAULT_WESTWOOD/d' "$DEFCONFIG_PATH"
             sed -i '/CONFIG_NET_ACT_/d' "$DEFCONFIG_PATH"
+            # Pastikan CONFIG_BUILD_ARM64_DT_OVERLAY=y aktif agar menghasilkan dtbo.img untuk Redmi 10C
             sed -i '/CONFIG_BUILD_ARM64_DT_OVERLAY/d' "$DEFCONFIG_PATH"
-            echo "# CONFIG_BUILD_ARM64_DT_OVERLAY is not set" >> "$DEFCONFIG_PATH"
+            echo "CONFIG_BUILD_ARM64_DT_OVERLAY=y" >> "$DEFCONFIG_PATH"
             sed -i '/CONFIG_ANDROID_PARANOID_NETWORK/d' "$DEFCONFIG_PATH"
             echo "# CONFIG_ANDROID_PARANOID_NETWORK is not set" >> "$DEFCONFIG_PATH"
             cat "$GITHUB_WORKSPACE/configs/potato.config" >> "$DEFCONFIG_PATH"
@@ -226,7 +227,7 @@ jobs:
             --enable NET_ACT_BPF \
             --enable NET_ACT_POLICE \
             --enable NET_ACT_CONNMARK \
-            --disable BUILD_ARM64_DT_OVERLAY \
+            --enable BUILD_ARM64_DT_OVERLAY \
             --disable ANDROID_PARANOID_NETWORK \
             --enable CRYPTO_CHACHA20POLY1305 \
             --enable XFRM_MIGRATE \
@@ -264,7 +265,7 @@ jobs:
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz-dtb
+            Image.gz dtbo.img dtb.img
 
       - name: Package with AnyKernel3
         run: |
@@ -281,13 +282,13 @@ jobs:
 
           OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
 
-          # Salin file kernel hasil build (Prioritaskan Image.gz-dtb agar membawa 18 device tree dasar Qualcomm)
-          if [ -f "$OUT_DIR/Image.gz-dtb" ]; then
-            echo "Menemukan Image.gz-dtb"
-            cp "$OUT_DIR/Image.gz-dtb" .
-          elif [ -f "$OUT_DIR/Image.gz" ]; then
+          # Salin file kernel hasil build (Prioritaskan Image.gz yang sesuai arsitektur Cirno & Boot Header v3)
+          if [ -f "$OUT_DIR/Image.gz" ]; then
             echo "Menemukan Image.gz"
             cp "$OUT_DIR/Image.gz" .
+          elif [ -f "$OUT_DIR/Image.gz-dtb" ]; then
+            echo "Menemukan Image.gz-dtb"
+            cp "$OUT_DIR/Image.gz-dtb" .
           elif [ -f "$OUT_DIR/Image" ]; then
             echo "Menemukan Image"
             cp "$OUT_DIR/Image" .
@@ -296,15 +297,10 @@ jobs:
             exit 1
           fi
 
-          # JANGAN salin dtbo.img ke AnyKernel3 agar partisi dtbo fisik OEM tidak tertimpa!
-
-          # Salin dtb jika ada
-          if [ -f "$OUT_DIR/dtb.img" ]; then
-            echo "Menemukan dtb.img"
-            cp "$OUT_DIR/dtb.img" dtb
-          elif [ -f "$OUT_DIR/dtb" ]; then
-            echo "Menemukan dtb"
-            cp "$OUT_DIR/dtb" .
+          # Salin dtbo.img (Wajib untuk Redmi 10C / SM6225 agar tidak bootloop)
+          if [ -f "$OUT_DIR/dtbo.img" ]; then
+            echo "Menemukan dtbo.img, menyalin ke AnyKernel3..."
+            cp "$OUT_DIR/dtbo.img" .
           fi
 
           # Bundle built-in Kairos RAM Management module directly into AnyKernel3 zip

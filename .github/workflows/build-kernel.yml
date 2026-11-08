@@ -464,6 +464,15 @@ jobs:
                 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
             fi
 
+            FGP_ZIP="$GITHUB_WORKSPACE/output/fgetpriority_v0.0.5-4.19-fog.zip"
+            if [ -f "$FGP_ZIP" ]; then
+              echo "===> Uploading fgetpriority Module to Telegram..."
+              curl -s -F "chat_id=${TELEGRAM_CHAT_ID}" \
+                -F "document=@${FGP_ZIP}" \
+                -F "caption=🛡 fgetpriority v0.0.5 (4.19 non-GKI fog) — pasangan kernel dari run ini" \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument"
+            fi
+
             MANAGER_APK="$GITHUB_WORKSPACE/output/bakasu-manager.apk"
             if [ -f "$MANAGER_APK" ]; then
               echo "===> Uploading BakaSU Manager to Telegram..."

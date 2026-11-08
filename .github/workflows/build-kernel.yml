@@ -232,6 +232,8 @@ jobs:
             --enable KALLSYMS_ALL \
             --disable TOUCHSCREEN_NT36XXX \
             --disable TOUCHSCREEN_FTS \
+            --disable RANDOMIZE_MODULE_REGION_FULL \
+            --enable KPROBES \
 
           # Resolve semua NEW symbols non-interaktif sebelum build,
           # agar syncconfig tidak Restart config dan mereset opsi kita
@@ -246,7 +248,7 @@ jobs:
           yes "" | make -j$(nproc --all) ARCH=arm64 O=out olddefconfig
 
           echo "===> Verifikasi hasil konfigurasi kritis:"
-          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_CASS|CONFIG_PELT_COMPATIBILITY_LAYER|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_ANDROID_PARANOID_NETWORK" out/.config || true
+          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_CASS|CONFIG_PELT_COMPATIBILITY_LAYER|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_ANDROID_PARANOID_NETWORK|CONFIG_RANDOMIZE_MODULE_REGION_FULL|CONFIG_KPROBES" out/.config || true
           echo "===> Verifikasi KSU hook mode:"
           grep -E "CONFIG_KSU" out/.config || true
 

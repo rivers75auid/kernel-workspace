@@ -324,7 +324,7 @@ jobs:
           cp "$KO" "$GITHUB_WORKSPACE/module-fgetpriority/ko/fog-4.19_arm64_fgetpriority.ko"
           cp "$KO" "$GITHUB_WORKSPACE/output/fog-4.19_arm64_fgetpriority.ko"
           (cd "$GITHUB_WORKSPACE/module-fgetpriority" && \
-            zip -r9 "$GITHUB_WORKSPACE/output/fgetpriority_v0.0.5-4.19-fog.zip" ./*)
+            zip -r9 "$GITHUB_WORKSPACE/output/fgetpriority_v0.0.5-4.19-fog.zip" ./* -x 'test-customize.sh')
           echo "===> fgetpriority artifacts ready"
 
       - name: Package with AnyKernel3

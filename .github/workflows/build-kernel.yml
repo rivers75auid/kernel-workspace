@@ -273,6 +273,60 @@ jobs:
           fi
           echo "[+] VERIFIKASI LOLOS: Image.gz ($IMG_SIZE bytes) dan dtbo.img ($DTBO_SIZE bytes) siap dikemas!"
 
+      - name: Build fgetpriority LKM (non-GKI 4.19)
+        run: |
+          set -e
+          export PATH="$GITHUB_WORKSPACE/zyc-clang/bin:$PATH"
+          export ARCH=arm64 CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          KSRC="$GITHUB_WORKSPACE/kernel_source"
+          mkdir -p "$GITHUB_WORKSPACE/output" "$GITHUB_WORKSPACE/module-fgetpriority/ko"
+
+          echo "===> Cloning fgetpriority upstream (pinned v0.0.4)..."
+          git clone --depth=1 -b v0.0.4 https://github.com/aerath-stuff/fgetpriority.git \
+            "$GITHUB_WORKSPACE/fgetpriority-src"
+          GOT=$(git -C "$GITHUB_WORKSPACE/fgetpriority-src" describe --exact-match --tags HEAD 2>/dev/null \
+            || git -C "$GITHUB_WORKSPACE/fgetpriority-src" rev-parse HEAD)
+          if [ "$GOT" != "v0.0.4" ]; then
+            echo "[!] HEAD fgetpriority-src bukan tag v0.0.4: $GOT (tag ref: be4ea47fa651c80a068e477d5a3627270b7bd683)"; exit 1
+          fi
+
+          REL=$(grep -h "define UTS_RELEASE" "$KSRC/out/include/generated/utsrelease.h" | cut -d'"' -f2)
+          echo "===> Kernel release: $REL"
+          printf '%s\n' "$REL" > "$GITHUB_WORKSPACE/output/utsrelease.txt"
+
+          echo "===> Building fgetpriority.ko against O=out tree..."
+          export CONFIG_FGETPRIORITY=m
+          make -j$(nproc --all) -C "$KSRC" O=out ARCH=arm64 CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            M="$GITHUB_WORKSPACE/fgetpriority-src/kernel" \
+            EXTRA_CFLAGS="-w" modules
+
+          KO="$GITHUB_WORKSPACE/fgetpriority-src/kernel/fgetpriority.ko"
+          [ -f "$KO" ] || { echo "[!] fgetpriority.ko tidak dihasilkan!"; exit 1; }
+
+          echo "===> Signing module dengan key run ini (jika kernel pakai MODULE_SIG)..."
+          if grep -q "^CONFIG_MODULE_SIG=y" "$KSRC/out/.config"; then
+            KEY=$(find "$KSRC" "$KSRC/out" -name signing_key.pem 2>/dev/null | head -1)
+            [ -n "$KEY" ] || { echo "[!] MODULE_SIG=y tapi signing_key.pem tidak ditemukan!"; exit 1; }
+            HASH=$(grep -oP 'CONFIG_MODULE_SIG_HASH="\K[^"]+' "$KSRC/out/.config" || echo sha512)
+            "$KSRC/out/scripts/sign-file" "$HASH" "$KEY" "$KEY" "$KO"
+            echo "===> Signed dengan $KEY (hash $HASH)"
+          else
+            echo "===> CONFIG_MODULE_SIG tidak aktif — skip signing"
+          fi
+
+          echo "===> Packing Magisk module zip..."
+          cp "$KO" "$GITHUB_WORKSPACE/module-fgetpriority/ko/fog-4.19_arm64_fgetpriority.ko"
+          cp "$KO" "$GITHUB_WORKSPACE/output/fog-4.19_arm64_fgetpriority.ko"
+          (cd "$GITHUB_WORKSPACE/module-fgetpriority" && \
+            zip -r9 "$GITHUB_WORKSPACE/output/fgetpriority_v0.0.5-4.19-fog.zip" ./*)
+          echo "===> fgetpriority artifacts ready"
+
       - name: Package with AnyKernel3
         run: |
           echo "===> Menyiapkan AnyKernel3..."

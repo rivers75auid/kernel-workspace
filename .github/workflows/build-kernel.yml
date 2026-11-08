@@ -287,10 +287,9 @@ jobs:
           echo "===> Cloning fgetpriority upstream (pinned v0.0.4)..."
           git clone --depth=1 -b v0.0.4 https://github.com/aerath-stuff/fgetpriority.git \
             "$GITHUB_WORKSPACE/fgetpriority-src"
-          GOT=$(git -C "$GITHUB_WORKSPACE/fgetpriority-src" describe --exact-match --tags HEAD 2>/dev/null \
-            || git -C "$GITHUB_WORKSPACE/fgetpriority-src" rev-parse HEAD)
-          if [ "$GOT" != "v0.0.4" ]; then
-            echo "[!] HEAD fgetpriority-src bukan tag v0.0.4: $GOT (tag ref: be4ea47fa651c80a068e477d5a3627270b7bd683)"; exit 1
+          GOT=$(git -C "$GITHUB_WORKSPACE/fgetpriority-src" rev-parse HEAD)
+          if [ "$GOT" != "be4ea47fa651c80a068e477d5a3627270b7bd683" ]; then
+            echo "[!] fgetpriority-src HEAD bukan commit v0.0.4 yang di-pin! Got: $GOT"; exit 1
           fi
 
           REL=$(grep -h "define UTS_RELEASE" "$KSRC/out/include/generated/utsrelease.h" | cut -d'"' -f2)
@@ -311,7 +310,7 @@ jobs:
 
           echo "===> Signing module dengan key run ini (jika kernel pakai MODULE_SIG)..."
           if grep -q "^CONFIG_MODULE_SIG=y" "$KSRC/out/.config"; then
-            KEY=$(find "$KSRC" "$KSRC/out" -name signing_key.pem 2>/dev/null | head -1)
+            KEY=$(find "$KSRC/out" "$KSRC/certs" -name signing_key.pem 2>/dev/null | head -1)
             [ -n "$KEY" ] || { echo "[!] MODULE_SIG=y tapi signing_key.pem tidak ditemukan!"; exit 1; }
             HASH=$(grep -oP 'CONFIG_MODULE_SIG_HASH="\K[^"]+' "$KSRC/out/.config" || echo sha512)
             "$KSRC/out/scripts/sign-file" "$HASH" "$KEY" "$KEY" "$KO"

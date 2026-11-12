@@ -12,3 +12,5 @@ docs/
 DEVELOPMENT_LOG.md
 .vscode/
 .idea/
+.telegram.env
+.env

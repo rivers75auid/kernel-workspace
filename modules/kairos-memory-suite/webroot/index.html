@@ -40,7 +40,7 @@
     <section id="tab-telemetry" class="tab-pane active" role="tabpanel" aria-labelledby="nav-telemetry">
       <article class="card">
         <div class="card-head">
-          <h2 class="card-title">Memory &amp; ZRAM</h2>
+          <h2 class="card-title">Memory &amp; Swap</h2>
           <button type="button" id="btn-refresh" class="btn btn-sm">Refresh</button>
         </div>
 
@@ -57,7 +57,7 @@
 
         <div class="metrics-grid">
           <div class="metric-cell">
-            <span class="metric-label">Swap Capacity</span>
+            <span class="metric-label">Total Swap</span>
             <span id="val-zram-total" class="metric-val">-- MB</span>
           </div>
           <div class="metric-cell">
@@ -77,6 +77,11 @@
         <div id="row-wb-stat" class="wb-strip" hidden>
           <span class="metric-label">Writeback Backing</span>
           <span id="val-wb-stat" class="wb-val">--</span>
+        </div>
+
+        <div id="row-swapfile-stat" class="wb-strip" hidden>
+          <span class="metric-label">Extra Swapfile</span>
+          <span id="val-swapfile-stat" class="wb-val">--</span>
         </div>
 
         <div class="progress-wrap">
@@ -126,7 +131,7 @@
             <span class="tile-title">Thermal Guard &amp; Charge Limit</span>
             <span class="tile-sub" id="sum-power-policy">Thermal Off · Limit 100%</span>
           </span>
-          <span class="tile-arrow" aria-hidden="true">Configure &rsaquo;</span>
+          <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
         </button>
       </article>
     </section>
@@ -139,7 +144,7 @@
           <span id="val-app-counts" class="status-badge">0 rules</span>
         </div>
         <p class="section-desc">
-          Game pauses charging while foregrounded. Swap moves inactive background apps to ZRAM/LMKD faster (IME protected).
+          Game pauses charging while foregrounded. Swap moves inactive background apps to ZRAM/Swap faster (IME protected).
         </p>
         <div class="search-row">
           <div class="search-box">
@@ -157,22 +162,35 @@
       </article>
     </section>
 
-    <!-- Tab 3: Modular Settings Tiles (Per-Item Fast Popups) -->
+    <!-- Tab 3: Modular Settings Tiles (Per-Item Fast Popups + Scene-Adapted Features) -->
     <section id="tab-tunables" class="tab-pane" role="tabpanel" aria-labelledby="nav-tunables" hidden>
       <article class="card">
         <div class="card-head">
-          <h2 class="card-title">System Tuning</h2>
-          <span class="metric-chip">Applies per item</span>
+          <h2 class="card-title">Memory &amp; Swap</h2>
+          <span class="metric-chip">Per-item apply</span>
         </div>
-        <p class="section-desc">
-          Tap a module below to adjust and apply its setting independently without restarting ZRAM swap.
-        </p>
 
         <div class="tile-stack">
+          <button type="button" class="config-tile" data-open-dialog="dlg-zram">
+            <span class="tile-main">
+              <span class="tile-title">ZRAM &amp; Writeback</span>
+              <span class="tile-sub" id="sum-zram">4.0 GB · zstd · WB Off</span>
+            </span>
+            <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
+          </button>
+
+          <button type="button" class="config-tile" data-open-dialog="dlg-swapfile">
+            <span class="tile-main">
+              <span class="tile-title">Extra Swapfile (Add Swap)</span>
+              <span class="tile-sub" id="sum-swapfile">Off · No ZRAM reset</span>
+            </span>
+            <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
+          </button>
+
           <button type="button" class="config-tile" data-open-dialog="dlg-cache">
             <span class="tile-main">
               <span class="tile-title">App Cache &amp; LMKD</span>
-              <span class="tile-sub" id="sum-cache">Limit 32 cached apps · Instant apply</span>
+              <span class="tile-sub" id="sum-cache">Limit 48 cached apps · Instant apply</span>
             </span>
             <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
           </button>
@@ -184,18 +202,35 @@
             </span>
             <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
           </button>
+        </div>
+      </article>
 
-          <button type="button" class="config-tile" data-open-dialog="dlg-zram">
+      <article class="card">
+        <div class="card-head">
+          <h2 class="card-title">Performance &amp; System (Scene)</h2>
+          <span class="metric-chip">SM6225 fog</span>
+        </div>
+
+        <div class="tile-stack">
+          <button type="button" class="config-tile" data-open-dialog="dlg-profile">
             <span class="tile-main">
-              <span class="tile-title">ZRAM &amp; Writeback</span>
-              <span class="tile-sub" id="sum-zram">3.0 GB · zstd · Writeback Off</span>
+              <span class="tile-title">CPU / GPU Power Profile</span>
+              <span class="tile-sub" id="sum-profile">Balance · Schedutil + Adreno 610</span>
+            </span>
+            <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
+          </button>
+
+          <button type="button" class="config-tile" data-open-dialog="dlg-runtime">
+            <span class="tile-main">
+              <span class="tile-title">Freezer, USAP &amp; Maintenance</span>
+              <span class="tile-sub" id="sum-runtime">Freezer On · USAP Off · FSTRIM</span>
             </span>
             <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
           </button>
 
           <button type="button" class="config-tile" data-open-dialog="dlg-display">
             <span class="tile-main">
-              <span class="tile-title">Display Scale</span>
+              <span class="tile-title">Display Scale &amp; Animations</span>
               <span class="tile-sub" id="sum-display">--</span>
             </span>
             <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
@@ -215,7 +250,7 @@
     <button type="button" id="nav-tunables" class="nav-btn" role="tab" aria-selected="false" aria-controls="tab-tunables" data-tab="tunables">Tuning</button>
   </nav>
 
-  <!-- Native Modal Dialogs (light-dismiss closedby="any", scroll containment, top-layer animated) -->
+  <!-- Power Policy Dialog -->
   <dialog id="dlg-power" class="sheet-dialog" closedby="any" aria-labelledby="dlg-power-title">
     <div class="dialog-head">
       <h2 id="dlg-power-title" class="dialog-title">Power Policy</h2>
@@ -255,6 +290,90 @@
     </div>
   </dialog>
 
+  <!-- ZRAM Dialog -->
+  <dialog id="dlg-zram" class="sheet-dialog" closedby="any" aria-labelledby="dlg-zram-title">
+    <div class="dialog-head">
+      <h2 id="dlg-zram-title" class="dialog-title">ZRAM &amp; Writeback</h2>
+      <button type="button" class="btn-icon" data-close-dialog aria-label="Close dialog" autofocus>&times;</button>
+    </div>
+    <div class="dialog-body">
+      <p class="notice-banner">
+        <strong>Note:</strong> Rebuilding live runs <code>swapoff</code>. For 4 GB RAM, <strong>4.0 GB zstd</strong> is recommended. Pick <strong>Save for Reboot</strong> to apply without freezing.
+      </p>
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-comp-algo">Compression algorithm</span>
+        <div class="option-pill-group" id="group-comp-algo" role="group" aria-labelledby="lbl-comp-algo">
+          <button type="button" class="pill-btn active" data-val="zstd">zstd</button>
+          <button type="button" class="pill-btn" data-val="lz4">lz4</button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-zram-size">Disk size</span>
+        <div class="option-pill-group" id="group-zram-size" role="group" aria-labelledby="lbl-zram-size">
+          <button type="button" class="pill-btn" data-val="2048M">2.0 GB</button>
+          <button type="button" class="pill-btn" data-val="3072M">3.0 GB</button>
+          <button type="button" class="pill-btn active" data-val="4096M">4.0 GB</button>
+          <button type="button" class="pill-btn" data-val="5120M">5.0 GB</button>
+          <button type="button" class="pill-btn" data-val="6144M">6.0 GB</button>
+        </div>
+      </div>
+      <div class="control-row">
+        <div class="control-info">
+          <label class="control-name" for="chk-zram-wb">ZRAM Writeback</label>
+          <span class="control-desc" id="desc-zram-wb">Offloads cold idle pages to loop storage (/data/adb/kairos_writeback.img).</span>
+        </div>
+        <input type="checkbox" switch role="switch" id="chk-zram-wb" class="kairos-switch" aria-describedby="desc-zram-wb">
+      </div>
+      <div class="setting-group" id="group-wb-size-wrap">
+        <span class="setting-label" id="lbl-wb-size">Writeback backing size</span>
+        <div class="option-pill-group" id="group-wb-size" role="group" aria-labelledby="lbl-wb-size">
+          <button type="button" class="pill-btn" data-val="512">512 MB</button>
+          <button type="button" class="pill-btn active" data-val="1024">1 GB</button>
+          <button type="button" class="pill-btn" data-val="2048">2 GB</button>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" id="btn-save-zram-reboot" class="btn">Save for Reboot</button>
+      <button type="button" id="btn-apply-zram-live" class="btn btn-primary">Rebuild Live</button>
+    </div>
+  </dialog>
+
+  <!-- Extra Swapfile Dialog (Scene-adapted Add Swap) -->
+  <dialog id="dlg-swapfile" class="sheet-dialog" closedby="any" aria-labelledby="dlg-swapfile-title">
+    <div class="dialog-head">
+      <h2 id="dlg-swapfile-title" class="dialog-title">Extra Swapfile (Add Swap)</h2>
+      <button type="button" class="btn-icon" data-close-dialog aria-label="Close dialog" autofocus>&times;</button>
+    </div>
+    <div class="dialog-body">
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-swapfile-size">Swapfile size (/data/adb/kairos_swapfile)</span>
+        <span class="setting-hint">Adds an independent loop swap device with mq-deadline I/O. Does not touch or reset ZRAM.</span>
+        <div class="option-pill-group" id="group-swapfile-size" role="group" aria-labelledby="lbl-swapfile-size">
+          <button type="button" class="pill-btn active" data-val="0">Off</button>
+          <button type="button" class="pill-btn" data-val="1024">1 GB</button>
+          <button type="button" class="pill-btn" data-val="2048">2 GB</button>
+          <button type="button" class="pill-btn" data-val="3072">3 GB</button>
+          <button type="button" class="pill-btn" data-val="4096">4 GB</button>
+        </div>
+      </div>
+      <div class="setting-group" id="group-swapfile-prio-wrap">
+        <span class="setting-label" id="lbl-swapfile-prio">Swap priority vs ZRAM (p=0)</span>
+        <span class="setting-hint">Recommended -1 (ZRAM First) so hot pages stay in RAM and overflow spills to disk.</span>
+        <div class="option-pill-group" id="group-swapfile-prio" role="group" aria-labelledby="lbl-swapfile-prio">
+          <button type="button" class="pill-btn active" data-val="-1">ZRAM First (-1)</button>
+          <button type="button" class="pill-btn" data-val="0">Equal (0)</button>
+          <button type="button" class="pill-btn" data-val="5">Swap First (5)</button>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn" data-close-dialog>Cancel</button>
+      <button type="button" id="btn-apply-swapfile" class="btn btn-primary">Apply Swapfile</button>
+    </div>
+  </dialog>
+
+  <!-- App Cache Dialog -->
   <dialog id="dlg-cache" class="sheet-dialog" closedby="any" aria-labelledby="dlg-cache-title">
     <div class="dialog-head">
       <h2 id="dlg-cache-title" class="dialog-title">App Cache &amp; LMKD</h2>
@@ -263,12 +382,12 @@
     <div class="dialog-body">
       <div class="setting-group">
         <span class="setting-label" id="lbl-bg-limit">Cached process limit</span>
-        <span class="setting-hint">Applies only to ActivityManager &amp; ro.sys.fw.bg_apps_limit without touching ZRAM. Recommended 32 for 4 GB RAM so Gboard stays snappy.</span>
+        <span class="setting-hint">ZRAM-first retention with lowmem_min_oom_score=900 so apps stay cached in ZRAM without choking Gboard or foreground UI.</span>
         <div class="option-pill-group" id="group-bg-limit" role="group" aria-labelledby="lbl-bg-limit">
-          <button type="button" class="pill-btn" data-val="24">24</button>
-          <button type="button" class="pill-btn active" data-val="32">32</button>
-          <button type="button" class="pill-btn" data-val="48">48</button>
+          <button type="button" class="pill-btn" data-val="32">32</button>
+          <button type="button" class="pill-btn active" data-val="48">48</button>
           <button type="button" class="pill-btn" data-val="64">64</button>
+          <button type="button" class="pill-btn" data-val="96">96</button>
         </div>
       </div>
     </div>
@@ -278,6 +397,7 @@
     </div>
   </dialog>
 
+  <!-- VM & Reclaim Dialog -->
   <dialog id="dlg-vm" class="sheet-dialog" closedby="any" aria-labelledby="dlg-vm-title">
     <div class="dialog-head">
       <h2 id="dlg-vm-title" class="dialog-title">VM &amp; Reclaim</h2>
@@ -323,56 +443,70 @@
     </div>
   </dialog>
 
-  <dialog id="dlg-zram" class="sheet-dialog" closedby="any" aria-labelledby="dlg-zram-title">
+  <!-- Scene-adapted CPU/GPU Power Profile Dialog -->
+  <dialog id="dlg-profile" class="sheet-dialog" closedby="any" aria-labelledby="dlg-profile-title">
     <div class="dialog-head">
-      <h2 id="dlg-zram-title" class="dialog-title">ZRAM &amp; Writeback</h2>
+      <h2 id="dlg-profile-title" class="dialog-title">CPU / GPU Power Profile</h2>
       <button type="button" class="btn-icon" data-close-dialog aria-label="Close dialog" autofocus>&times;</button>
     </div>
     <div class="dialog-body">
-      <p class="notice-banner">
-        <strong>Note:</strong> Live ZRAM rebuild runs <code>swapoff</code> to change size, algorithm, or backing device. If swap is heavy right now, choose <strong>Save for Reboot</strong> instead.
-      </p>
       <div class="setting-group">
-        <span class="setting-label" id="lbl-comp-algo">Compression algorithm</span>
-        <div class="option-pill-group" id="group-comp-algo" role="group" aria-labelledby="lbl-comp-algo">
-          <button type="button" class="pill-btn active" data-val="zstd">zstd</button>
-          <button type="button" class="pill-btn" data-val="lz4">lz4</button>
-        </div>
-      </div>
-      <div class="setting-group">
-        <span class="setting-label" id="lbl-zram-size">Disk size</span>
-        <div class="option-pill-group" id="group-zram-size" role="group" aria-labelledby="lbl-zram-size">
-          <button type="button" class="pill-btn" data-val="2048M">2.0 GB</button>
-          <button type="button" class="pill-btn active" data-val="3072M">3.0 GB</button>
-          <button type="button" class="pill-btn" data-val="4000M">4.0 GB</button>
-          <button type="button" class="pill-btn" data-val="4500M">4.5 GB</button>
-        </div>
-      </div>
-      <div class="control-row">
-        <div class="control-info">
-          <label class="control-name" for="chk-zram-wb">ZRAM Writeback</label>
-          <span class="control-desc" id="desc-zram-wb">Offloads cold idle pages to loop storage (/data/adb/kairos_writeback.img).</span>
-        </div>
-        <input type="checkbox" switch role="switch" id="chk-zram-wb" class="kairos-switch" aria-describedby="desc-zram-wb">
-      </div>
-      <div class="setting-group" id="group-wb-size-wrap">
-        <span class="setting-label" id="lbl-wb-size">Writeback backing size</span>
-        <div class="option-pill-group" id="group-wb-size" role="group" aria-labelledby="lbl-wb-size">
-          <button type="button" class="pill-btn" data-val="512">512 MB</button>
-          <button type="button" class="pill-btn active" data-val="1024">1 GB</button>
-          <button type="button" class="pill-btn" data-val="2048">2 GB</button>
+        <span class="setting-label" id="lbl-power-profile">SM6225 profile (adapted from Scene powercfg)</span>
+        <span class="setting-hint">Tunes Kryo 265 Silver/Gold clocks, schedutil rate limits, UCLAMP/SchedTune, and Adreno 610 devfreq cleanly.</span>
+        <div class="option-pill-group" id="group-power-profile" role="group" aria-labelledby="lbl-power-profile">
+          <button type="button" class="pill-btn" data-val="powersave">Powersave</button>
+          <button type="button" class="pill-btn active" data-val="balance">Balance</button>
+          <button type="button" class="pill-btn" data-val="performance">Performance</button>
+          <button type="button" class="pill-btn" data-val="fast">Fast</button>
+          <button type="button" class="pill-btn" data-val="pedestal">Pedestal</button>
         </div>
       </div>
     </div>
     <div class="dialog-foot">
-      <button type="button" id="btn-save-zram-reboot" class="btn">Save for Reboot</button>
-      <button type="button" id="btn-apply-zram-live" class="btn btn-primary">Rebuild Live</button>
+      <button type="button" class="btn" data-close-dialog>Cancel</button>
+      <button type="button" id="btn-apply-profile" class="btn btn-primary">Apply Profile</button>
     </div>
   </dialog>
 
+  <!-- Scene-adapted Runtime & Maintenance Dialog -->
+  <dialog id="dlg-runtime" class="sheet-dialog" closedby="any" aria-labelledby="dlg-runtime-title">
+    <div class="dialog-head">
+      <h2 id="dlg-runtime-title" class="dialog-title">Freezer, USAP &amp; Maintenance</h2>
+      <button type="button" class="btn-icon" data-close-dialog aria-label="Close dialog" autofocus>&times;</button>
+    </div>
+    <div class="dialog-body">
+      <div class="control-row control-row-first">
+        <div class="control-info">
+          <label class="control-name" for="chk-freezer">Cached App Freezer</label>
+          <span class="control-desc" id="desc-freezer">Freezes cached processes in ZRAM so keeping 48+ apps uses zero background CPU.</span>
+        </div>
+        <input type="checkbox" switch role="switch" id="chk-freezer" class="kairos-switch" aria-describedby="desc-freezer">
+      </div>
+      <div class="control-row">
+        <div class="control-info">
+          <label class="control-name" for="chk-usap">USAP Pool (Android Runtime)</label>
+          <span class="control-desc" id="desc-usap">Pre-forks Zygote worker pool for faster app cold launch (reboot to take full effect).</span>
+        </div>
+        <input type="checkbox" switch role="switch" id="chk-usap" class="kairos-switch" aria-describedby="desc-usap">
+      </div>
+      <div class="setting-group">
+        <span class="setting-label">Flash Storage &amp; Doze Maintenance</span>
+        <span class="setting-hint">Runs fstrim on /data &amp; /cache to keep eMMC/UFS write speed crisp.</span>
+        <div class="card-actions">
+          <button type="button" id="btn-fstrim" class="btn">Run FSTRIM</button>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn" data-close-dialog>Cancel</button>
+      <button type="button" id="btn-apply-runtime" class="btn btn-primary">Save Runtime</button>
+    </div>
+  </dialog>
+
+  <!-- Display Scale & Animation Speed Dialog -->
   <dialog id="dlg-display" class="sheet-dialog" closedby="any" aria-labelledby="dlg-display-title">
     <div class="dialog-head">
-      <h2 id="dlg-display-title" class="dialog-title">Display Scale</h2>
+      <h2 id="dlg-display-title" class="dialog-title">Display Scale &amp; Animations</h2>
       <button type="button" class="btn-icon" data-close-dialog aria-label="Close dialog" autofocus>&times;</button>
     </div>
     <div class="dialog-body">
@@ -395,10 +529,19 @@
           <button type="button" class="pill-btn" data-scale="0.85">85%</button>
         </div>
       </div>
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-anim-scale">Window / Transition / Animator speed</span>
+        <div class="option-pill-group" id="group-anim-scale" role="group" aria-labelledby="lbl-anim-scale">
+          <button type="button" class="pill-btn active" data-anim="1.0">1.0x</button>
+          <button type="button" class="pill-btn" data-anim="0.5">0.5x</button>
+          <button type="button" class="pill-btn" data-anim="0.25">0.25x</button>
+          <button type="button" class="pill-btn" data-anim="0">Off</button>
+        </div>
+      </div>
     </div>
     <div class="dialog-foot">
       <button type="button" id="btn-reset-display" class="btn">Reset 100%</button>
-      <button type="button" id="btn-apply-display" class="btn btn-primary">Apply Scale</button>
+      <button type="button" id="btn-apply-display" class="btn btn-primary">Apply Display</button>
     </div>
   </dialog>
 </body>

@@ -1,11 +1,15 @@
 // Kairos Engine WebUI Client Controller
-// Per-item config apply + native <dialog> top-layer sheets (modern-web-guidance compliant)
+// Per-item config apply + Scene-adapted Swapfile, Power Profile, Freezer/USAP & Animation controls.
 
 const CONFIG_PATH = "/data/adb/kairos_config.json";
 const ZRAM_HELPER =
   "[ -x /data/adb/modules_update/kairos_memory_suite/kairos_zram.sh ] " +
   "&& echo /data/adb/modules_update/kairos_memory_suite/kairos_zram.sh " +
   "|| echo /data/adb/modules/kairos_memory_suite/kairos_zram.sh";
+const POWER_HELPER =
+  "[ -x /data/adb/modules_update/kairos_memory_suite/kairos_power.sh ] " +
+  "&& echo /data/adb/modules_update/kairos_memory_suite/kairos_power.sh " +
+  "|| echo /data/adb/modules/kairos_memory_suite/kairos_power.sh";
 
 function hasBridge() {
   return !!(window.ksu && window.ksu.exec);
@@ -48,19 +52,25 @@ const appState = {
     heavy_swap_apps: [],
     swappiness: 100,
     comp_algorithm: "zstd",
-    zram_size: "3072M",
+    zram_size: "4096M",
     zram_writeback: false,
     wb_size_mb: 1024,
+    swapfile_mb: 0,
+    swapfile_prio: -1,
+    power_profile: "balance",
+    use_freezer: true,
+    usap_pool: false,
     watermark_scale: 15,
     vfs_cache_pressure: 100,
     compaction_proactiveness: 20,
-    bg_limit: 32,
+    bg_limit: 48,
     thermal_guard: false,
     thermal_limit_c: 52,
     charge_limit: 100
   },
   wbSupported: false,
   filterActiveOnly: false,
+  animScale: "1.0",
   display: {
     physWidth: 720,
     physHeight: 1650,
@@ -91,6 +101,8 @@ const el = {
   zramRatioAlgo: document.getElementById("val-zram-ratio-algo"),
   rowWbStat: document.getElementById("row-wb-stat"),
   valWbStat: document.getElementById("val-wb-stat"),
+  rowSwapfileStat: document.getElementById("row-swapfile-stat"),
+  valSwapfileStat: document.getElementById("val-swapfile-stat"),
   swapPct: document.getElementById("val-swap-pct"),
   barSwap: document.getElementById("bar-swap"),
   barSwapTrack: document.getElementById("bar-swap-track"),
@@ -117,10 +129,26 @@ const el = {
   appListContainer: document.getElementById("app-list-container"),
   btnSaveApps: document.getElementById("btn-save-apps"),
 
+  sumZram: document.getElementById("sum-zram"),
+  sumSwapfile: document.getElementById("sum-swapfile"),
   sumCache: document.getElementById("sum-cache"),
   sumVm: document.getElementById("sum-vm"),
-  sumZram: document.getElementById("sum-zram"),
+  sumProfile: document.getElementById("sum-profile"),
+  sumRuntime: document.getElementById("sum-runtime"),
   sumDisplay: document.getElementById("sum-display"),
+
+  groupCompAlgo: document.getElementById("group-comp-algo"),
+  groupZramSize: document.getElementById("group-zram-size"),
+  chkZramWb: document.getElementById("chk-zram-wb"),
+  groupWbSizeWrap: document.getElementById("group-wb-size-wrap"),
+  groupWbSize: document.getElementById("group-wb-size"),
+  btnSaveZramReboot: document.getElementById("btn-save-zram-reboot"),
+  btnApplyZramLive: document.getElementById("btn-apply-zram-live"),
+
+  groupSwapfileSize: document.getElementById("group-swapfile-size"),
+  groupSwapfilePrioWrap: document.getElementById("group-swapfile-prio-wrap"),
+  groupSwapfilePrio: document.getElementById("group-swapfile-prio"),
+  btnApplySwapfile: document.getElementById("btn-apply-swapfile"),
 
   groupBgLimit: document.getElementById("group-bg-limit"),
   btnApplyCache: document.getElementById("btn-apply-cache"),
@@ -131,17 +159,18 @@ const el = {
   groupCompProact: document.getElementById("group-comp-proact"),
   btnApplyVm: document.getElementById("btn-apply-vm"),
 
-  groupCompAlgo: document.getElementById("group-comp-algo"),
-  groupZramSize: document.getElementById("group-zram-size"),
-  chkZramWb: document.getElementById("chk-zram-wb"),
-  groupWbSizeWrap: document.getElementById("group-wb-size-wrap"),
-  groupWbSize: document.getElementById("group-wb-size"),
-  btnSaveZramReboot: document.getElementById("btn-save-zram-reboot"),
-  btnApplyZramLive: document.getElementById("btn-apply-zram-live"),
+  groupPowerProfile: document.getElementById("group-power-profile"),
+  btnApplyProfile: document.getElementById("btn-apply-profile"),
+
+  chkFreezer: document.getElementById("chk-freezer"),
+  chkUsap: document.getElementById("chk-usap"),
+  btnFstrim: document.getElementById("btn-fstrim"),
+  btnApplyRuntime: document.getElementById("btn-apply-runtime"),
 
   valDisplayRes: document.getElementById("val-display-res"),
   valDisplayDpi: document.getElementById("val-display-dpi"),
   groupDisplayScale: document.getElementById("group-display-scale"),
+  groupAnimScale: document.getElementById("group-anim-scale"),
   btnApplyDisplay: document.getElementById("btn-apply-display"),
   btnResetDisplay: document.getElementById("btn-reset-display")
 };
@@ -286,17 +315,34 @@ function updateSummaryTiles() {
     const tg = c.thermal_guard ? `On (${c.thermal_limit_c || 52}°C)` : "Off";
     el.sumPowerPolicy.textContent = `Thermal ${tg} · Limit ${c.charge_limit || 100}%`;
   }
+  if (el.sumZram) {
+    const gb = ((parseInt(c.zram_size, 10) || 4096) / 1024).toFixed(1);
+    const wb = c.zram_writeback ? `WB ${c.wb_size_mb || 1024} MB` : "WB Off";
+    el.sumZram.textContent = `${gb} GB · ${c.comp_algorithm || "zstd"} · ${wb}`;
+  }
+  if (el.sumSwapfile) {
+    const smb = parseInt(c.swapfile_mb, 10) || 0;
+    if (smb > 0) {
+      const gb = (smb / 1024).toFixed(0);
+      el.sumSwapfile.textContent = `${gb} GB active · Priority ${c.swapfile_prio ?? -1}`;
+    } else {
+      el.sumSwapfile.textContent = "Off · Independent from ZRAM";
+    }
+  }
   if (el.sumCache) {
-    el.sumCache.textContent = `Limit ${c.bg_limit || 32} cached apps · Instant apply`;
+    el.sumCache.textContent = `Limit ${c.bg_limit || 48} cached apps · Instant apply`;
   }
   if (el.sumVm) {
     el.sumVm.textContent =
       `Swap ${c.swappiness} · WM ${c.watermark_scale || 15} · VFS ${c.vfs_cache_pressure || 100}`;
   }
-  if (el.sumZram) {
-    const gb = ((parseInt(c.zram_size, 10) || 3072) / 1024).toFixed(1);
-    const wb = c.zram_writeback ? `WB ${c.wb_size_mb || 1024} MB` : "WB Off";
-    el.sumZram.textContent = `${gb} GB · ${c.comp_algorithm || "zstd"} · ${wb}`;
+  if (el.sumProfile) {
+    const p = c.power_profile || "balance";
+    el.sumProfile.textContent = `${p.charAt(0).toUpperCase() + p.slice(1)} · Schedutil + Adreno 610`;
+  }
+  if (el.sumRuntime) {
+    el.sumRuntime.textContent =
+      `Freezer ${c.use_freezer ? "On" : "Off"} · USAP ${c.usap_pool ? "On" : "Off"} · FSTRIM`;
   }
 }
 
@@ -359,6 +405,23 @@ async function fetchTelemetry() {
     } else {
       el.rowWbStat.hidden = true;
     }
+  }
+
+  if (el.rowSwapfileStat && el.valSwapfileStat) {
+    const sfLine = (kv.SWAPFILE_LINE || "").trim();
+    if (sfLine) {
+      const [dev, sizeKb, usedKb, prio] = sfLine.split(/\s+/);
+      const szMb = Math.round((parseInt(sizeKb, 10) || 0) / 1024);
+      const usMb = Math.round((parseInt(usedKb, 10) || 0) / 1024);
+      el.rowSwapfileStat.hidden = false;
+      el.valSwapfileStat.textContent = `${usMb}/${szMb} MB (${dev}, p=${prio || 0})`;
+    } else {
+      el.rowSwapfileStat.hidden = true;
+    }
+  }
+
+  if (kv.ANIM_SCALE) {
+    appState.animScale = kv.ANIM_SCALE === "null" ? "1.0" : kv.ANIM_SCALE;
   }
 
   const swapPct = swapTotalMb > 0 ? Math.round((origSizeMb / swapTotalMb) * 100) : 0;
@@ -595,19 +658,24 @@ function setupPillGroup(groupEl, configKey, onPick) {
     btn.classList.add("active");
     btn.setAttribute("aria-pressed", "true");
     const val = btn.getAttribute("data-val");
-    appState.config[configKey] = isNaN(Number(val)) ? val : Number(val);
-    if (onPick) onPick(appState.config[configKey]);
+    if (configKey) appState.config[configKey] = isNaN(Number(val)) ? val : Number(val);
+    if (onPick) onPick(configKey ? appState.config[configKey] : val);
   });
 }
 
+setupPillGroup(el.groupCompAlgo, "comp_algorithm");
+setupPillGroup(el.groupZramSize, "zram_size");
+setupPillGroup(el.groupWbSize, "wb_size_mb");
+setupPillGroup(el.groupSwapfileSize, "swapfile_mb", (val) => {
+  if (el.groupSwapfilePrioWrap) el.groupSwapfilePrioWrap.hidden = Number(val) === 0;
+});
+setupPillGroup(el.groupSwapfilePrio, "swapfile_prio");
 setupPillGroup(el.groupBgLimit, "bg_limit");
 setupPillGroup(el.groupSwappiness, "swappiness");
 setupPillGroup(el.groupWmScale, "watermark_scale");
 setupPillGroup(el.groupVfsPressure, "vfs_cache_pressure");
 setupPillGroup(el.groupCompProact, "compaction_proactiveness");
-setupPillGroup(el.groupCompAlgo, "comp_algorithm");
-setupPillGroup(el.groupZramSize, "zram_size");
-setupPillGroup(el.groupWbSize, "wb_size_mb");
+setupPillGroup(el.groupPowerProfile, "power_profile");
 setupPillGroup(el.groupThermalLimit, "thermal_limit_c");
 setupPillGroup(el.groupChargeLimit, "charge_limit");
 
@@ -625,27 +693,56 @@ if (el.chkZramWb) {
   });
 }
 
+if (el.chkFreezer) {
+  el.chkFreezer.addEventListener("change", (e) => {
+    appState.config.use_freezer = e.target.checked;
+  });
+}
+
+if (el.chkUsap) {
+  el.chkUsap.addEventListener("change", (e) => {
+    appState.config.usap_pool = e.target.checked;
+  });
+}
+
+if (el.groupAnimScale) {
+  el.groupAnimScale.addEventListener("click", (e) => {
+    const btn = e.target.closest(".pill-btn");
+    if (!btn) return;
+    el.groupAnimScale.querySelectorAll(".pill-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    appState.animScale = btn.getAttribute("data-anim") || "1.0";
+  });
+}
+
 function syncTunablesUI() {
-  const selectPill = (groupEl, val) => {
+  const selectPill = (groupEl, val, attr = "data-val") => {
     if (!groupEl) return;
     groupEl.querySelectorAll(".pill-btn").forEach((b) => {
-      const match = b.getAttribute("data-val") == String(val);
+      const match = b.getAttribute(attr) == String(val);
       b.classList.toggle("active", match);
       b.setAttribute("aria-pressed", match ? "true" : "false");
     });
   };
   const c = appState.config;
-  selectPill(el.groupBgLimit, c.bg_limit || 32);
+  selectPill(el.groupCompAlgo, c.comp_algorithm || "zstd");
+  selectPill(el.groupZramSize, c.zram_size || "4096M");
+  selectPill(el.groupWbSize, c.wb_size_mb || 1024);
+  selectPill(el.groupSwapfileSize, c.swapfile_mb ?? 0);
+  selectPill(el.groupSwapfilePrio, c.swapfile_prio ?? -1);
+  selectPill(el.groupBgLimit, c.bg_limit || 48);
   selectPill(el.groupSwappiness, c.swappiness);
   selectPill(el.groupWmScale, c.watermark_scale || 15);
   selectPill(el.groupVfsPressure, c.vfs_cache_pressure || 100);
   selectPill(el.groupCompProact, c.compaction_proactiveness ?? 20);
-  selectPill(el.groupCompAlgo, c.comp_algorithm || "zstd");
-  selectPill(el.groupZramSize, c.zram_size || "3072M");
-  selectPill(el.groupWbSize, c.wb_size_mb || 1024);
+  selectPill(el.groupPowerProfile, c.power_profile || "balance");
   selectPill(el.groupThermalLimit, c.thermal_limit_c || 52);
   selectPill(el.groupChargeLimit, c.charge_limit || 100);
+  selectPill(el.groupAnimScale, parseFloat(appState.animScale || "1.0"), "data-anim");
 
+  if (el.groupSwapfilePrioWrap) {
+    el.groupSwapfilePrioWrap.hidden = Number(c.swapfile_mb || 0) === 0;
+  }
   if (el.chkThermalGuard) {
     el.chkThermalGuard.checked = c.thermal_guard === true;
     if (el.groupThermalLimitWrap) el.groupThermalLimitWrap.hidden = !el.chkThermalGuard.checked;
@@ -654,6 +751,8 @@ function syncTunablesUI() {
     el.chkZramWb.checked = c.zram_writeback === true;
     if (el.groupWbSizeWrap) el.groupWbSizeWrap.hidden = !el.chkZramWb.checked;
   }
+  if (el.chkFreezer) el.chkFreezer.checked = c.use_freezer !== false;
+  if (el.chkUsap) el.chkUsap.checked = c.usap_pool === true;
   updateSummaryTiles();
 }
 
@@ -669,11 +768,60 @@ if (el.btnSavePower) {
   );
 }
 
+if (el.btnSaveZramReboot) {
+  el.btnSaveZramReboot.addEventListener("click", () =>
+    withBusyButton(el.btnSaveZramReboot, "Saving...", async () => {
+      if (await saveConfig()) {
+        await closeTopLayer(document.getElementById("dlg-zram"));
+        log("ZRAM config saved for next boot (zero live freeze).");
+      }
+    })
+  );
+}
+
+if (el.btnApplyZramLive) {
+  el.btnApplyZramLive.addEventListener("click", () =>
+    withBusyButton(el.btnApplyZramLive, "Rebuilding...", async () => {
+      if (!(await saveConfig())) return;
+      const c = appState.config;
+      const wbFlag = c.zram_writeback ? 1 : 0;
+      const zres = await execHelper(
+        `zram "${c.zram_size || "4096M"}" "${c.comp_algorithm || "zstd"}" ${wbFlag} ${c.wb_size_mb || 1024}`,
+        45000
+      );
+      await fetchTelemetry();
+      await closeTopLayer(document.getElementById("dlg-zram"));
+      if (zres.errno === -2) log("Live ZRAM rebuild timed out (saved for reboot).");
+      else if (zres.stdout.includes("ZRAM_FAIL") || zres.stdout.includes("DISKSIZE_FAIL")) log("ZRAM apply failed.");
+      else if (zres.stdout.includes("WB_UNSUPPORTED")) log("ZRAM applied (writeback unsupported by kernel).");
+      else if (zres.stdout.includes("ZRAM_UNCHANGED")) log("ZRAM already matches active settings.");
+      else log("ZRAM rebuilt & persisted.");
+    })
+  );
+}
+
+if (el.btnApplySwapfile) {
+  el.btnApplySwapfile.addEventListener("click", () =>
+    withBusyButton(el.btnApplySwapfile, "Applying...", async () => {
+      if (!(await saveConfig())) return;
+      const c = appState.config;
+      const mb = parseInt(c.swapfile_mb, 10) || 0;
+      const prio = c.swapfile_prio ?? -1;
+      const res = await execHelper(`swapfile ${mb} ${prio}`, 60000);
+      await fetchTelemetry();
+      await closeTopLayer(document.getElementById("dlg-swapfile"));
+      if (res.stdout.includes("SWAP_OFF")) log("Extra swapfile disabled & removed.");
+      else if (res.stdout.includes("SWAP_OK")) log(`Extra swapfile active (${mb} MB, prio ${prio}).`);
+      else log("Swapfile setup failed: " + (res.stdout || res.stderr));
+    })
+  );
+}
+
 if (el.btnApplyCache) {
   el.btnApplyCache.addEventListener("click", () =>
     withBusyButton(el.btnApplyCache, "Applying...", async () => {
       if (!(await saveConfig())) return;
-      const limit = appState.config.bg_limit || 32;
+      const limit = appState.config.bg_limit || 48;
       const res = await exec(
         `resetprop ro.sys.fw.bg_apps_limit ${limit}; ` +
         `device_config put activity_manager max_cached_processes ${limit} 2>/dev/null`
@@ -699,45 +847,44 @@ if (el.btnApplyVm) {
   );
 }
 
-if (el.btnSaveZramReboot) {
-  el.btnSaveZramReboot.addEventListener("click", () =>
-    withBusyButton(el.btnSaveZramReboot, "Saving...", async () => {
-      if (await saveConfig()) {
-        await closeTopLayer(document.getElementById("dlg-zram"));
-        log("ZRAM config saved for next boot (zero live freeze).");
-      }
-    })
-  );
-}
-
-if (el.btnApplyZramLive) {
-  el.btnApplyZramLive.addEventListener("click", () =>
-    withBusyButton(el.btnApplyZramLive, "Rebuilding...", async () => {
+if (el.btnApplyProfile) {
+  el.btnApplyProfile.addEventListener("click", () =>
+    withBusyButton(el.btnApplyProfile, "Applying...", async () => {
       if (!(await saveConfig())) return;
-      const c = appState.config;
-      const wbFlag = c.zram_writeback ? 1 : 0;
-      const zres = await execHelper(
-        `zram "${c.zram_size || "3072M"}" "${c.comp_algorithm || "zstd"}" ${wbFlag} ${c.wb_size_mb || 1024}`,
-        45000
-      );
-      await fetchTelemetry();
-      await closeTopLayer(document.getElementById("dlg-zram"));
-      if (zres.errno === -2) {
-        log("Live ZRAM rebuild timed out (config saved for reboot).");
-      } else if (zres.stdout.includes("ZRAM_FAIL") || zres.stdout.includes("DISKSIZE_FAIL")) {
-        log("ZRAM apply failed; check log or reduce size.");
-      } else if (zres.stdout.includes("WB_UNSUPPORTED")) {
-        log("ZRAM applied (writeback unsupported by this kernel).");
-      } else if (zres.stdout.includes("ZRAM_UNCHANGED")) {
-        log("ZRAM already matches active settings.");
-      } else {
-        log("ZRAM rebuilt & persisted.");
-      }
+      const prof = appState.config.power_profile || "balance";
+      const res = await exec(`P=$(${POWER_HELPER}); sh "$P" "${prof}"`);
+      await closeTopLayer(document.getElementById("dlg-profile"));
+      log(res.errno === 0 ? `Power profile switched to ${prof}.` : "Failed switching profile.");
     })
   );
 }
 
-// Display Manager
+if (el.btnApplyRuntime) {
+  el.btnApplyRuntime.addEventListener("click", () =>
+    withBusyButton(el.btnApplyRuntime, "Saving...", async () => {
+      if (!(await saveConfig())) return;
+      const freezer = appState.config.use_freezer ? "true" : "false";
+      const usap = appState.config.usap_pool ? "true" : "false";
+      await exec(
+        `device_config put activity_manager_native_boot use_freezer ${freezer} 2>/dev/null; ` +
+        `setprop persist.device_config.runtime_native.usap_pool_enabled ${usap} 2>/dev/null`
+      );
+      await closeTopLayer(document.getElementById("dlg-runtime"));
+      log(`Runtime saved (Freezer ${freezer}, USAP ${usap}).`);
+    })
+  );
+}
+
+if (el.btnFstrim) {
+  el.btnFstrim.addEventListener("click", () =>
+    withBusyButton(el.btnFstrim, "Trimming...", async () => {
+      await exec("fstrim /data 2>/dev/null; fstrim /cache 2>/dev/null; sm fstrim 2>/dev/null", 30000);
+      log("Flash FSTRIM completed on /data & /cache.");
+    })
+  );
+}
+
+// Display Manager & Animation Speed
 async function fetchDisplayInfo() {
   const sizeRes = await exec("wm size");
   const densRes = await exec("wm density");
@@ -773,7 +920,7 @@ async function fetchDisplayInfo() {
 
   if (el.valDisplayRes) el.valDisplayRes.textContent = `${currW}x${currH}`;
   if (el.valDisplayDpi) el.valDisplayDpi.textContent = `${currDpi} dpi`;
-  if (el.sumDisplay) el.sumDisplay.textContent = `${currW}×${currH} · ${currDpi} dpi`;
+  if (el.sumDisplay) el.sumDisplay.textContent = `${currW}×${currH} · ${currDpi} dpi · Anim ${appState.animScale}x`;
 }
 
 if (el.groupDisplayScale) {
@@ -788,19 +935,25 @@ if (el.groupDisplayScale) {
 
 if (el.btnApplyDisplay) {
   el.btnApplyDisplay.addEventListener("click", () =>
-    withBusyButton(el.btnApplyDisplay, "Scaling...", async () => {
+    withBusyButton(el.btnApplyDisplay, "Applying...", async () => {
       const scale = appState.display.selectedScale;
+      const anim = appState.animScale || "1.0";
+      let cmd =
+        `settings put global window_animation_scale ${anim}; ` +
+        `settings put global transition_animation_scale ${anim}; ` +
+        `settings put global animator_duration_scale ${anim}; `;
       if (Math.abs(scale - 1.0) < 0.01) {
-        await exec("wm size reset && wm density reset");
+        cmd += "wm size reset && wm density reset";
       } else {
         const targetW = Math.round(appState.display.physWidth * scale);
         const targetH = Math.round(appState.display.physHeight * scale);
         const targetDpi = Math.round(appState.display.physDpi * scale);
-        await exec(`wm size ${targetW}x${targetH} && wm density ${targetDpi}`);
+        cmd += `wm size ${targetW}x${targetH} && wm density ${targetDpi}`;
       }
+      await exec(cmd);
       await fetchDisplayInfo();
       await closeTopLayer(document.getElementById("dlg-display"));
-      log(`Display scale applied (${Math.round(scale * 100)}%).`);
+      log(`Display updated (${Math.round(scale * 100)}%, anim ${anim}x).`);
     })
   );
 }
@@ -808,16 +961,18 @@ if (el.btnApplyDisplay) {
 if (el.btnResetDisplay) {
   el.btnResetDisplay.addEventListener("click", () =>
     withBusyButton(el.btnResetDisplay, "Resetting...", async () => {
-      await exec("wm size reset && wm density reset");
-      if (el.groupDisplayScale) {
-        el.groupDisplayScale.querySelectorAll(".pill-btn").forEach((b) => {
-          b.classList.toggle("active", b.getAttribute("data-scale") === "1.0");
-        });
-      }
+      await exec(
+        "wm size reset && wm density reset && " +
+        "settings put global window_animation_scale 1.0 && " +
+        "settings put global transition_animation_scale 1.0 && " +
+        "settings put global animator_duration_scale 1.0"
+      );
       appState.display.selectedScale = 1.0;
+      appState.animScale = "1.0";
+      syncTunablesUI();
       await fetchDisplayInfo();
       await closeTopLayer(document.getElementById("dlg-display"));
-      log("Display reset to native 100%.");
+      log("Display & animation scale reset to 100% / 1.0x.");
     })
   );
 }

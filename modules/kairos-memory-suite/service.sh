@@ -21,13 +21,18 @@ if [ ! -f "$CONFIG" ]; then
   "heavy_swap_apps": [],
   "swappiness": 100,
   "comp_algorithm": "zstd",
-  "zram_size": "3072M",
+  "zram_size": "4096M",
   "zram_writeback": false,
   "wb_size_mb": 1024,
+  "swapfile_mb": 0,
+  "swapfile_prio": -1,
+  "power_profile": "balance",
+  "use_freezer": true,
+  "usap_pool": false,
   "watermark_scale": 15,
   "vfs_cache_pressure": 100,
   "compaction_proactiveness": 20,
-  "bg_limit": 32,
+  "bg_limit": 48,
   "thermal_guard": false,
   "thermal_limit_c": 52,
   "charge_limit": 100
@@ -61,15 +66,20 @@ cfg_bool() {
 
 SWAPPINESS=$(cfg_val swappiness); [ -z "$SWAPPINESS" ] && SWAPPINESS=100
 COMP_ALGO=$(cfg_val comp_algorithm); [ -z "$COMP_ALGO" ] && COMP_ALGO="zstd"
-ZRAM_SIZE=$(cfg_val zram_size); [ -z "$ZRAM_SIZE" ] && ZRAM_SIZE="3072M"
+ZRAM_SIZE=$(cfg_val zram_size); [ -z "$ZRAM_SIZE" ] && ZRAM_SIZE="4096M"
 ZRAM_WB=$(cfg_bool zram_writeback)
 WB_SIZE=$(cfg_val wb_size_mb); [ -z "$WB_SIZE" ] && WB_SIZE=1024
+SWAPFILE_MB=$(cfg_val swapfile_mb); [ -z "$SWAPFILE_MB" ] && SWAPFILE_MB=0
+SWAPFILE_PRIO=$(cfg_val swapfile_prio); [ -z "$SWAPFILE_PRIO" ] && SWAPFILE_PRIO=-1
+POWER_PROFILE=$(cfg_val power_profile); [ -z "$POWER_PROFILE" ] && POWER_PROFILE="balance"
+USE_FREEZER=$(cfg_val use_freezer)
+USAP_POOL=$(cfg_val usap_pool)
 WM_SCALE=$(cfg_val watermark_scale); [ -z "$WM_SCALE" ] && WM_SCALE=15
 VFS_PRESSURE=$(cfg_val vfs_cache_pressure); [ -z "$VFS_PRESSURE" ] && VFS_PRESSURE=100
 COMP_PROACT=$(cfg_val compaction_proactiveness); [ -z "$COMP_PROACT" ] && COMP_PROACT=20
-BG_LIMIT=$(cfg_val bg_limit); [ -z "$BG_LIMIT" ] && BG_LIMIT=32
+BG_LIMIT=$(cfg_val bg_limit); [ -z "$BG_LIMIT" ] && BG_LIMIT=48
 
-# 1. Align ActivityManager & LMKD (keep PSI active; prune cached junk without starving IME/UI)
+# 1. Align ActivityManager, LMKD & Scene-adapted Runtime (keep PSI active; prune stale >=900 cached only)
 resetprop ro.sys.fw.bg_apps_limit "$BG_LIMIT"
 if command -v device_config >/dev/null 2>&1; then
   device_config put activity_manager max_cached_processes "$BG_LIMIT" 2>/dev/null
@@ -77,9 +87,15 @@ if command -v device_config >/dev/null 2>&1; then
   device_config put activity_manager use_compaction false 2>/dev/null
   device_config put activity_manager proactive_kills_enabled false 2>/dev/null
   device_config delete activity_manager no_kill_cached_processes_post_boot_completed_duration_millis 2>/dev/null
+  if [ "$USE_FREEZER" = "true" ] || [ "$USE_FREEZER" = "false" ]; then
+    device_config put activity_manager_native_boot use_freezer "$USE_FREEZER" 2>/dev/null
+  fi
   if [ "$(getprop ro.lmk.use_psi)" = "true" ]; then
     device_config put lmkd_native use_minfree_levels false 2>/dev/null
   fi
+fi
+if [ "$USAP_POOL" = "true" ] || [ "$USAP_POOL" = "false" ]; then
+  setprop persist.device_config.runtime_native.usap_pool_enabled "$USAP_POOL" 2>/dev/null
 fi
 settings put global settings_enable_monitor_phantom_procs false 2>/dev/null
 
@@ -91,9 +107,13 @@ settings put global settings_enable_monitor_phantom_procs false 2>/dev/null
 [ -e /sys/kernel/mm/transparent_hugepage/enabled ] && echo never > /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null
 [ -e /sys/kernel/mm/transparent_hugepage/defrag ] && echo never > /sys/kernel/mm/transparent_hugepage/defrag 2>/dev/null
 
-# 3. Apply persisted ZRAM (size, algorithm, optional writeback) & VM tunables at boot
+# 3. Apply persisted ZRAM, Swapfile & VM tunables at boot
 ZRES=$(sh "$MODDIR/kairos_zram.sh" apply "$ZRAM_SIZE" "$COMP_ALGO" "$ZRAM_WB" "$WB_SIZE" "$SWAPPINESS" "$VFS_PRESSURE" "$WM_SCALE" "$COMP_PROACT" 2>&1)
 echo "Boot ZRAM apply: $ZRES" >> "$LOG"
+if [ "$SWAPFILE_MB" -gt 0 ] 2>/dev/null; then
+  SRES=$(sh "$MODDIR/kairos_zram.sh" swapfile "$SWAPFILE_MB" "$SWAPFILE_PRIO" 2>&1)
+  echo "Boot Swapfile apply: $SRES" >> "$LOG"
+fi
 
 # 4. Keep kswapd/kcompactd responsive on foreground cpuset (avoid getting starved on idle cores)
 for kproc in kswapd0 kcompactd0; do
@@ -103,15 +123,11 @@ for kproc in kswapd0 kcompactd0; do
   fi
 done
 
-# 5. CPU Schedutil Smoothing & Headroom
-for pol in /sys/devices/system/cpu/cpufreq/policy*; do
-  if [ -d "$pol/schedutil" ]; then
-    echo 20000 > "$pol/schedutil/down_rate_limit_us" 2>/dev/null
-  fi
-done
-if [ -d /dev/stune/top-app ]; then
-  echo 5 > /dev/stune/top-app/schedtune.boost 2>/dev/null
-  echo 1 > /dev/stune/top-app/schedtune.prefer_idle 2>/dev/null
+# 5. Scene-adapted SM6225 Power Profile (CPU, Schedutil, UCLAMP/SchedTune, Adreno GPU, DDR)
+if [ -x "$MODDIR/kairos_power.sh" ] || [ -f "$MODDIR/kairos_power.sh" ]; then
+  sh "$MODDIR/kairos_power.sh" init >/dev/null 2>&1
+  [ "$POWER_PROFILE" != "balance" ] && sh "$MODDIR/kairos_power.sh" "$POWER_PROFILE" >/dev/null 2>&1
+  echo "Boot Power Profile: $POWER_PROFILE" >> "$LOG"
 fi
 
 echo "=== Kairos Engine Boot Setup Completed ===" >> "$LOG"

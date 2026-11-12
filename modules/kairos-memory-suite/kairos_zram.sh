@@ -1,15 +1,32 @@
 #!/system/bin/sh
-# Kairos Engine - Unified ZRAM, Writeback & VM Helper (Android 13-16 / Linux 4.19+)
+# Kairos Engine - Unified ZRAM, Swapfile, Writeback & VM Helper (Android 13-16 / Linux 4.19+)
 # Single entry point invoked by service.sh at boot and WebUI at runtime.
 
 MODDIR=${0%/*}
 WB_IMG="/data/adb/kairos_writeback.img"
 WB_PROP="persist.kairos.wb_loop"
+SWAP_IMG="/data/adb/kairos_swapfile"
+SWAP_PROP="persist.kairos.swap_loop"
 
 clamp_int() {
   val="$1"; lo="$2"; hi="$3"; def="$4"
   case "$val" in
     ''|*[!0-9]*) printf '%s\n' "$def"; return ;;
+  esac
+  [ "$val" -lt "$lo" ] && val="$lo"
+  [ "$val" -gt "$hi" ] && val="$hi"
+  printf '%s\n' "$val"
+}
+
+clamp_signed() {
+  val="$1"; lo="$2"; hi="$3"; def="$4"
+  case "$val" in
+    ''|-) printf '%s\n' "$def"; return ;;
+    -*[0-9])
+      digits="${val#-}"
+      case "$digits" in *[!0-9]*|'') printf '%s\n' "$def"; return ;; esac
+      ;;
+    *[!0-9]*) printf '%s\n' "$def"; return ;;
   esac
   [ "$val" -lt "$lo" ] && val="$lo"
   [ "$val" -gt "$hi" ] && val="$hi"
@@ -58,14 +75,18 @@ optimize_loop_queue() {
   write_node 0 "$q/nomerges"
 }
 
-detach_wb_loop() {
-  old_loop=$(getprop "$WB_PROP" 2>/dev/null)
+detach_loop_by_file() {
+  prop_key="$1"
+  img_path="$2"
+  old_loop=$(getprop "$prop_key" 2>/dev/null)
   if [ -n "$old_loop" ]; then
+    swapoff "$old_loop" 2>/dev/null || true
     losetup -d "$old_loop" 2>/dev/null || true
-    setprop "$WB_PROP" "" 2>/dev/null || true
+    setprop "$prop_key" "" 2>/dev/null || true
   fi
-  if [ -f "$WB_IMG" ] && command -v losetup >/dev/null 2>&1; then
-    for dev in $(losetup -a 2>/dev/null | grep "kairos_writeback.img" | cut -d: -f1); do
+  if [ -f "$img_path" ] && command -v losetup >/dev/null 2>&1; then
+    for dev in $(losetup -a 2>/dev/null | grep "${img_path##*/}" | cut -d: -f1); do
+      swapoff "$dev" 2>/dev/null || true
       losetup -d "$dev" 2>/dev/null || true
     done
   fi
@@ -75,7 +96,7 @@ setup_backing_dev() {
   wb_mb=$(clamp_int "$1" 256 4096 1024)
   [ -e /sys/block/zram0/backing_dev ] || return 1
 
-  detach_wb_loop
+  detach_loop_by_file "$WB_PROP" "$WB_IMG"
   want_bytes=$((wb_mb * 1048576))
   curr_bytes=0
   [ -f "$WB_IMG" ] && curr_bytes=$(wc -c < "$WB_IMG" 2>/dev/null || echo 0)
@@ -94,7 +115,7 @@ setup_backing_dev() {
   optimize_loop_queue "$loop_dev"
 
   if ! printf '%s' "$loop_dev" > /sys/block/zram0/backing_dev 2>/dev/null; then
-    detach_wb_loop
+    detach_loop_by_file "$WB_PROP" "$WB_IMG"
     return 1
   fi
   write_node 0 /sys/block/zram0/writeback_limit_enable
@@ -139,7 +160,7 @@ cmd_vm() {
 }
 
 cmd_zram() {
-  zram_size="${1:-3072M}"
+  zram_size="${1:-4096M}"
   want_algo="${2:-zstd}"
   want_wb=$(clamp_int "${3:-0}" 0 1 0)
   wb_mb=$(clamp_int "${4:-1024}" 256 4096 1024)
@@ -176,7 +197,7 @@ cmd_zram() {
   fi
 
   swapoff /dev/block/zram0 2>/dev/null || true
-  detach_wb_loop
+  detach_loop_by_file "$WB_PROP" "$WB_IMG"
   echo 1 > /sys/block/zram0/reset 2>/dev/null || true
 
   # Algorithm MUST be written after reset and BEFORE disksize on 4.19
@@ -211,9 +232,49 @@ cmd_zram() {
   return 1
 }
 
+cmd_swapfile() {
+  swap_mb=$(clamp_int "${1:-0}" 0 8192 0)
+  swap_prio=$(clamp_signed "${2:--1}" -10 32767 -1)
+
+  swapoff "$SWAP_IMG" 2>/dev/null || true
+  detach_loop_by_file "$SWAP_PROP" "$SWAP_IMG"
+
+  if [ "$swap_mb" -eq 0 ]; then
+    rm -f "$SWAP_IMG" 2>/dev/null || true
+    echo "SWAP_OFF"
+    return 0
+  fi
+
+  want_bytes=$((swap_mb * 1048576))
+  curr_bytes=0
+  [ -f "$SWAP_IMG" ] && curr_bytes=$(wc -c < "$SWAP_IMG" 2>/dev/null || echo 0)
+  if [ ! -f "$SWAP_IMG" ] || [ "$curr_bytes" -ne "$want_bytes" ]; then
+    rm -f "$SWAP_IMG"
+    fallocate -l "$want_bytes" "$SWAP_IMG" 2>/dev/null \
+      || dd if=/dev/zero of="$SWAP_IMG" bs=1048576 count="$swap_mb" >/dev/null 2>&1 \
+      || { echo "SWAP_ALLOC_FAIL"; return 1; }
+    chmod 600 "$SWAP_IMG" 2>/dev/null
+  fi
+
+  target_dev="$SWAP_IMG"
+  loop_dev=$(find_free_loop)
+  if [ -n "$loop_dev" ] && losetup "$loop_dev" "$SWAP_IMG" >/dev/null 2>&1; then
+    setprop "$SWAP_PROP" "$loop_dev" 2>/dev/null || true
+    optimize_loop_queue "$loop_dev"
+    target_dev="$loop_dev"
+  fi
+
+  mkswap "$target_dev" >/dev/null 2>&1 || { echo "SWAP_MKSWAP_FAIL"; return 1; }
+  swapon "$target_dev" -p "$swap_prio" >/dev/null 2>&1 || swapon "$target_dev" >/dev/null 2>&1 || {
+    echo "SWAP_ON_FAIL"
+    return 1
+  }
+  echo "SWAP_OK mb=${swap_mb} prio=${swap_prio} dev=${target_dev}"
+}
+
 cmd_apply() {
   cmd_vm "${5:-100}" "${6:-100}" "${7:-15}" "${8:-20}"
-  cmd_zram "${1:-3072M}" "${2:-zstd}" "${3:-0}" "${4:-1024}"
+  cmd_zram "${1:-4096M}" "${2:-zstd}" "${3:-0}" "${4:-1024}"
 }
 
 cmd_compact() {
@@ -259,6 +320,9 @@ cmd_status() {
     printf 'BD_STAT=\n'
   fi
 
+  swap_line=$(grep -v '/zram' /proc/swaps 2>/dev/null | awk 'NR>1 || $1 ~ /\// {if ($1 !~ /^Filename/) {print $1, $3, $4, $5; exit}}')
+  printf 'SWAPFILE_LINE=%s\n' "$swap_line"
+
   printf 'MGLRU=%s\n' "$(cat /sys/kernel/mm/lru_gen/enabled 2>/dev/null | tr -d '\n')"
   printf 'PSI_MEM=%s\n' "$(head -1 /proc/pressure/memory 2>/dev/null | tr -d '\n')"
   printf 'VM_SWAPPINESS=%s\n' "$(cat /proc/sys/vm/swappiness 2>/dev/null)"
@@ -266,6 +330,9 @@ cmd_status() {
   printf 'VM_WM_SCALE=%s\n' "$(cat /proc/sys/vm/watermark_scale_factor 2>/dev/null)"
   printf 'VM_COMP_PROACT=%s\n' "$(cat /proc/sys/vm/compaction_proactiveness 2>/dev/null)"
   printf 'BG_LIMIT=%s\n' "$(getprop ro.sys.fw.bg_apps_limit 2>/dev/null)"
+  printf 'FREEZER=%s\n' "$(device_config get activity_manager_native_boot use_freezer 2>/dev/null)"
+  printf 'USAP=%s\n' "$(getprop persist.device_config.runtime_native.usap_pool_enabled 2>/dev/null)"
+  printf 'ANIM_SCALE=%s\n' "$(settings get global window_animation_scale 2>/dev/null)"
 
   printf 'PWR_TEMP=%s\n' "$(cat /sys/class/power_supply/battery/temp 2>/dev/null)"
   printf 'PWR_CURRENT=%s\n' "$(cat /sys/class/power_supply/battery/current_now 2>/dev/null)"
@@ -281,7 +348,8 @@ case "$1" in
   apply) shift; cmd_apply "$@" ;;
   vm) shift; cmd_vm "$@" ;;
   zram) shift; cmd_zram "$@" ;;
+  swapfile) shift; cmd_swapfile "$@" ;;
   compact) shift; cmd_compact "$@" ;;
   status) cmd_status ;;
-  *) echo "Usage: $0 {apply|vm|zram|compact|status}"; exit 1 ;;
+  *) echo "Usage: $0 {apply|vm|zram|swapfile|compact|status}"; exit 1 ;;
 esac

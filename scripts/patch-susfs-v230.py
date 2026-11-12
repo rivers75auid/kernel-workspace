@@ -1913,6 +1913,16 @@ extern struct vfsmount *susfs_get_non_sus_vfsmnt_from_vfsmnt(struct vfsmount *vf
 \treturn error;
 }""",
         """#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+int calculate_f_flags_wrapper(struct vfsmount *mnt)
+{
+\treturn calculate_f_flags(mnt);
+}
+
+int statfs_by_dentry_wrapper(struct dentry *dentry, struct kstatfs *buf)
+{
+\treturn statfs_by_dentry(dentry, buf);
+}
+
 static int susfs_statfs_by_dentry(struct dentry *dentry, struct vfsmount *mnt, struct kstatfs *buf, bool *is_fuse)
 {
 \tint retval;

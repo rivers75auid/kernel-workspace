@@ -89,6 +89,8 @@ tune_schedutil() {
     [ -d "$su" ] || return 0
     local hi_freq
     hi_freq="$(pick_freq_le "$pdir/scaling_available_frequencies" "$hi_target")"
+    # Upstream PELT/CASS schedutil uses rate_limit_us; WALT schedutil uses up/down_rate_limit_us
+    set_val "$up_us"   "$su/rate_limit_us"
     set_val "$up_us"   "$su/up_rate_limit_us"
     set_val "$down_us" "$su/down_rate_limit_us"
     set_val "$hi_freq" "$su/hispeed_freq"
@@ -102,12 +104,33 @@ tune_stune() {
     local fg_boost="$3"
     local fg_idle="$4"
     local bg_boost="$5"
-    set_val "$ta_boost" "/dev/stune/top-app/schedtune.boost"
-    set_val "$ta_idle"  "/dev/stune/top-app/schedtune.prefer_idle"
-    set_val "$fg_boost" "/dev/stune/foreground/schedtune.boost"
-    set_val "$fg_idle"  "/dev/stune/foreground/schedtune.prefer_idle"
-    set_val "$bg_boost" "/dev/stune/background/schedtune.boost"
-    set_val 0           "/dev/stune/background/schedtune.prefer_idle"
+    # Legacy WALT SchedTune (/dev/stune)
+    if [ -d /dev/stune ]; then
+        set_val "$ta_boost" "/dev/stune/top-app/schedtune.boost"
+        set_val "$ta_idle"  "/dev/stune/top-app/schedtune.prefer_idle"
+        set_val "$fg_boost" "/dev/stune/foreground/schedtune.boost"
+        set_val "$fg_idle"  "/dev/stune/foreground/schedtune.prefer_idle"
+        set_val "$bg_boost" "/dev/stune/background/schedtune.boost"
+        set_val 0           "/dev/stune/background/schedtune.prefer_idle"
+    fi
+    # Kairos CASS + UCLAMP (/dev/cpuctl)
+    if [ -d /dev/cpuctl ]; then
+        local ta_umin=0
+        [ "$ta_boost" -gt 0 ] 2>/dev/null && ta_umin="$ta_boost"
+        local fg_umin=0
+        [ "$fg_boost" -gt 0 ] 2>/dev/null && fg_umin="$fg_boost"
+        local bg_umax=100
+        [ "$bg_boost" -lt 0 ] 2>/dev/null && bg_umax=40
+        set_val "$ta_umin" "/dev/cpuctl/top-app/cpu.uclamp.min"
+        set_val 100        "/dev/cpuctl/top-app/cpu.uclamp.max"
+        set_val "$ta_idle" "/dev/cpuctl/top-app/cpu.uclamp.latency_sensitive"
+        set_val "$fg_umin" "/dev/cpuctl/foreground/cpu.uclamp.min"
+        set_val 100        "/dev/cpuctl/foreground/cpu.uclamp.max"
+        set_val "$fg_idle" "/dev/cpuctl/foreground/cpu.uclamp.latency_sensitive"
+        set_val 0          "/dev/cpuctl/background/cpu.uclamp.min"
+        set_val "$bg_umax" "/dev/cpuctl/background/cpu.uclamp.max"
+        set_val 0          "/dev/cpuctl/background/cpu.uclamp.latency_sensitive"
+    fi
 }
 
 tune_gpu() {

@@ -1472,7 +1472,7 @@ def patch_fs_notify_fdinfo(text, label):
 #include <linux/susfs_def.h>
 #endif
 #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-#include "../mount.h"
+#include <linux/slab.h>
 #endif
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 extern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);

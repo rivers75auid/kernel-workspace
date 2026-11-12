@@ -52,7 +52,7 @@ const appState = {
     heavy_swap_apps: [],
     swappiness: 100,
     comp_algorithm: "zstd",
-    zram_size: "4096M",
+    zram_size: "3072M",
     zram_writeback: false,
     wb_size_mb: 1024,
     swapfile_mb: 0,
@@ -316,7 +316,7 @@ function updateSummaryTiles() {
     el.sumPowerPolicy.textContent = `Thermal ${tg} · Limit ${c.charge_limit || 100}%`;
   }
   if (el.sumZram) {
-    const gb = ((parseInt(c.zram_size, 10) || 4096) / 1024).toFixed(1);
+    const gb = ((parseInt(c.zram_size, 10) || 3072) / 1024).toFixed(1);
     const wb = c.zram_writeback ? `WB ${c.wb_size_mb || 1024} MB` : "WB Off";
     el.sumZram.textContent = `${gb} GB · ${c.comp_algorithm || "zstd"} · ${wb}`;
   }
@@ -726,7 +726,7 @@ function syncTunablesUI() {
   };
   const c = appState.config;
   selectPill(el.groupCompAlgo, c.comp_algorithm || "zstd");
-  selectPill(el.groupZramSize, c.zram_size || "4096M");
+  selectPill(el.groupZramSize, c.zram_size || "3072M");
   selectPill(el.groupWbSize, c.wb_size_mb || 1024);
   selectPill(el.groupSwapfileSize, c.swapfile_mb ?? 0);
   selectPill(el.groupSwapfilePrio, c.swapfile_prio ?? -1);
@@ -786,7 +786,7 @@ if (el.btnApplyZramLive) {
       const c = appState.config;
       const wbFlag = c.zram_writeback ? 1 : 0;
       const zres = await execHelper(
-        `zram "${c.zram_size || "4096M"}" "${c.comp_algorithm || "zstd"}" ${wbFlag} ${c.wb_size_mb || 1024}`,
+        `zram "${c.zram_size || "3072M"}" "${c.comp_algorithm || "zstd"}" ${wbFlag} ${c.wb_size_mb || 1024}`,
         45000
       );
       await fetchTelemetry();

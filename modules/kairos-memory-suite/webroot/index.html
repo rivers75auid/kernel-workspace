@@ -174,7 +174,7 @@
           <button type="button" class="config-tile" data-open-dialog="dlg-zram">
             <span class="tile-main">
               <span class="tile-title">ZRAM &amp; Writeback</span>
-              <span class="tile-sub" id="sum-zram">4.0 GB · zstd · WB Off</span>
+              <span class="tile-sub" id="sum-zram">3.0 GB · zstd · WB Off</span>
             </span>
             <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
           </button>
@@ -298,7 +298,7 @@
     </div>
     <div class="dialog-body">
       <p class="notice-banner">
-        <strong>Note:</strong> Rebuilding live runs <code>swapoff</code>. For 4 GB RAM, <strong>4.0 GB zstd</strong> is recommended. Pick <strong>Save for Reboot</strong> to apply without freezing.
+        <strong>Note:</strong> Rebuilding live runs <code>swapoff</code>. On 4 GB RAM, <strong>3.0 GB (75%) zstd</strong> is the sweet spot; pair with <strong>Extra Swapfile</strong> if you want larger capacity without eating RAM.
       </p>
       <div class="setting-group">
         <span class="setting-label" id="lbl-comp-algo">Compression algorithm</span>
@@ -311,10 +311,9 @@
         <span class="setting-label" id="lbl-zram-size">Disk size</span>
         <div class="option-pill-group" id="group-zram-size" role="group" aria-labelledby="lbl-zram-size">
           <button type="button" class="pill-btn" data-val="2048M">2.0 GB</button>
-          <button type="button" class="pill-btn" data-val="3072M">3.0 GB</button>
-          <button type="button" class="pill-btn active" data-val="4096M">4.0 GB</button>
+          <button type="button" class="pill-btn active" data-val="3072M">3.0 GB</button>
+          <button type="button" class="pill-btn" data-val="4096M">4.0 GB</button>
           <button type="button" class="pill-btn" data-val="5120M">5.0 GB</button>
-          <button type="button" class="pill-btn" data-val="6144M">6.0 GB</button>
         </div>
       </div>
       <div class="control-row">

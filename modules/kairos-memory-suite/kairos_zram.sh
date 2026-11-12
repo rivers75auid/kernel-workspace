@@ -160,7 +160,7 @@ cmd_vm() {
 }
 
 cmd_zram() {
-  zram_size="${1:-4096M}"
+  zram_size="${1:-3072M}"
   want_algo="${2:-zstd}"
   want_wb=$(clamp_int "${3:-0}" 0 1 0)
   wb_mb=$(clamp_int "${4:-1024}" 256 4096 1024)
@@ -274,7 +274,7 @@ cmd_swapfile() {
 
 cmd_apply() {
   cmd_vm "${5:-100}" "${6:-100}" "${7:-15}" "${8:-20}"
-  cmd_zram "${1:-4096M}" "${2:-zstd}" "${3:-0}" "${4:-1024}"
+  cmd_zram "${1:-3072M}" "${2:-zstd}" "${3:-0}" "${4:-1024}"
 }
 
 cmd_compact() {

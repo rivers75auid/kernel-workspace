@@ -21,7 +21,7 @@ if [ ! -f "$CONFIG" ]; then
   "heavy_swap_apps": [],
   "swappiness": 100,
   "comp_algorithm": "zstd",
-  "zram_size": "4096M",
+  "zram_size": "3072M",
   "zram_writeback": false,
   "wb_size_mb": 1024,
   "swapfile_mb": 0,
@@ -66,7 +66,7 @@ cfg_bool() {
 
 SWAPPINESS=$(cfg_val swappiness); [ -z "$SWAPPINESS" ] && SWAPPINESS=100
 COMP_ALGO=$(cfg_val comp_algorithm); [ -z "$COMP_ALGO" ] && COMP_ALGO="zstd"
-ZRAM_SIZE=$(cfg_val zram_size); [ -z "$ZRAM_SIZE" ] && ZRAM_SIZE="4096M"
+ZRAM_SIZE=$(cfg_val zram_size); [ -z "$ZRAM_SIZE" ] && ZRAM_SIZE="3072M"
 ZRAM_WB=$(cfg_bool zram_writeback)
 WB_SIZE=$(cfg_val wb_size_mb); [ -z "$WB_SIZE" ] && WB_SIZE=1024
 SWAPFILE_MB=$(cfg_val swapfile_mb); [ -z "$SWAPFILE_MB" ] && SWAPFILE_MB=0

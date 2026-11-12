@@ -1,9 +1,14 @@
 #ifndef KSU_SUSFS_DEF_H
 #define KSU_SUSFS_DEF_H
 
+#include <linux/types.h>
+#include <linux/compiler.h>
 #include <linux/bits.h>
+#include <linux/bitops.h>
 #include <linux/bitmap.h>
 #include <linux/string.h>
+#include <linux/cred.h>
+#include <linux/thread_info.h>
 
 /********/
 /* ENUM */

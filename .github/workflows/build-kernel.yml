@@ -103,15 +103,14 @@ jobs:
             xz-utils \
             zip
 
-      - name: Download ZyC Clang 16 Toolchain (Polly Optimized)
+      - name: Download AOSP Clang 12 Toolchain (r416183b)
         run: |
-          echo "===> Downloading ZyC Clang 16.0.6 (Optimized for Cortex-A73/A53 & Snapdragon 680)..."
-          mkdir -p "$GITHUB_WORKSPACE/zyc-clang"
-          curl -fSL --retry 5 --retry-connrefused --retry-delay 3 \
-            -o /tmp/zyc-clang.tar.gz \
-            "https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260807-release/Clang-16.0.6-20260807.tar.gz"
-          tar -xzf /tmp/zyc-clang.tar.gz -C "$GITHUB_WORKSPACE/zyc-clang"
-          rm -f /tmp/zyc-clang.tar.gz
+          echo "===> Cloning AOSP Clang 12.0.5 (clang-r416183b)..."
+          git clone --depth=1 --single-branch -b lineage-20.0 \
+            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git \
+            "$GITHUB_WORKSPACE/aosp-clang"
+          "$GITHUB_WORKSPACE/aosp-clang/bin/clang" --version
+          "$GITHUB_WORKSPACE/aosp-clang/bin/ld.lld" --version
 
       - name: Clone Kernel Source
         run: |
@@ -195,23 +194,29 @@ jobs:
           KNAME="${{ github.event.inputs.KERNEL_NAME }}"
           [ -z "$KNAME" ] && KNAME="Kairos"
 
-          export PATH="$GITHUB_WORKSPACE/zyc-clang/bin:$PATH"
+          export PATH="$GITHUB_WORKSPACE/aosp-clang/bin:$PATH"
           export ARCH=arm64
           export SUBARCH=arm64
-          export CC=clang
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export CLANG_TRIPLE=aarch64-linux-gnu-
           export KBUILD_BUILD_USER="${KNAME}-Dev"
           export KBUILD_BUILD_HOST="Olympus-Buildbox"
+
+          MAKE_ARGS=(
+            ARCH=arm64
+            O=out
+            LLVM=1
+            LLVM_IAS=1
+            CLANG_TRIPLE=aarch64-linux-gnu-
+            CROSS_COMPILE=aarch64-linux-gnu-
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          )
 
           mkdir -p out
           echo "===> Mengonfigurasi defconfig: $DEFCONFIG..."
           for cfg in $DEFCONFIG; do
-            make -j$(nproc --all) ARCH=arm64 O=out $cfg
+            make -j$(nproc --all) "${MAKE_ARGS[@]}" $cfg
           done
 
-          echo "===> Memaksa opsi CASS, Schedutil, CFQ/BFQ & BBR langsung di out/.config via scripts/config..."
+          echo "===> Memaksa opsi CASS, Schedutil, PSI/MEMCG, ThinLTO, HZ_250, CFQ/BFQ & BBR di out/.config..."
           ./scripts/config --file out/.config \
             --enable CPU_FREQ_DEFAULT_GOV_SCHEDUTIL \
             --disable CPU_FREQ_DEFAULT_GOV_PERFORMANCE \
@@ -219,6 +224,30 @@ jobs:
             --disable SCHED_CORE_CTL \
             --enable SCHED_CASS \
             --enable PELT_COMPATIBILITY_LAYER \
+            --enable UCLAMP_TASK \
+            --enable UCLAMP_TASK_GROUP \
+            --enable ENERGY_MODEL \
+            --disable ANDROID_SIMPLE_LMK \
+            --disable ANDROID_LOW_MEMORY_KILLER \
+            --enable PSI \
+            --disable PSI_DEFAULT_DISABLED \
+            --enable MEMCG \
+            --enable MEMCG_SWAP \
+            --enable MEMCG_SWAP_ENABLED \
+            --enable MEMCG_KMEM \
+            --enable CGROUP_FREEZER \
+            --enable LRU_GEN \
+            --enable LRU_GEN_ENABLED \
+            --disable HZ_100 \
+            --enable HZ_250 \
+            --disable LTO_NONE \
+            --enable LTO_CLANG \
+            --enable THINLTO \
+            --disable SHADOW_CALL_STACK \
+            --enable INIT_STACK_NONE \
+            --disable INIT_STACK_ALL_PATTERN \
+            --disable INIT_STACK_ALL_ZERO \
+            --disable INIT_ON_FREE_DEFAULT_ON \
             --enable DEFAULT_CFQ \
             --enable DEFAULT_BBR \
             --disable DEFAULT_WESTWOOD \
@@ -233,32 +262,36 @@ jobs:
             --disable TOUCHSCREEN_NT36XXX \
             --disable TOUCHSCREEN_FTS \
             --disable RANDOMIZE_MODULE_REGION_FULL \
-            --enable KPROBES \
+            --enable KPROBES
 
-          # Resolve semua NEW symbols non-interaktif sebelum build,
-          # agar syncconfig tidak Restart config dan mereset opsi kita
-          echo "===> Force KSU manual hook mode (Non-GKI 4.19)..."
-          ./scripts/config --file out/.config \
-            --enable KSU \
-            --enable KSU_MANUAL_HOOK \
-            --disable KSU_TRACEPOINT_HOOK \
-            --enable KSU_SUSFS
+          # Resolve KSU hook choice cleanly without conflicting choice overrides
+          ENABLE_SUS="${{ github.event.inputs.ENABLE_SUSFS || 'true' }}"
+          if [ "$ENABLE_SUS" = "true" ]; then
+            echo "===> Force KSU SuSFS Inline Hook mode (Non-GKI 4.19)..."
+            ./scripts/config --file out/.config \
+              --enable KSU \
+              --disable KSU_TRACEPOINT_HOOK \
+              --disable KSU_MANUAL_HOOK \
+              --enable KSU_SUSFS
+          else
+            echo "===> Force KSU Manual Hook mode (Non-GKI 4.19)..."
+            ./scripts/config --file out/.config \
+              --enable KSU \
+              --disable KSU_TRACEPOINT_HOOK \
+              --disable KSU_SUSFS \
+              --enable KSU_MANUAL_HOOK
+          fi
 
-          echo "===> Menyelesaikan NEW symbols non-interaktif (yes olddefconfig)..."
-          yes "" | make -j$(nproc --all) ARCH=arm64 O=out olddefconfig
+          echo "===> Menyelesaikan NEW symbols non-interaktif dengan LLVM=1..."
+          make -j$(nproc --all) "${MAKE_ARGS[@]}" olddefconfig
 
           echo "===> Verifikasi hasil konfigurasi kritis:"
-          grep -E "CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_SCHED_CASS|CONFIG_PELT_COMPATIBILITY_LAYER|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_ANDROID_PARANOID_NETWORK|CONFIG_RANDOMIZE_MODULE_REGION_FULL|CONFIG_KPROBES" out/.config || true
+          grep -E "CONFIG_CC_IS_CLANG|CONFIG_LD_IS_LLD|CONFIG_LTO_CLANG|CONFIG_THINLTO|CONFIG_LTO_NONE|CONFIG_PSI|CONFIG_MEMCG|CONFIG_ANDROID_SIMPLE_LMK|CONFIG_LRU_GEN|CONFIG_ZRAM_DEF_COMP|CONFIG_ZRAM_WRITEBACK|CONFIG_UCLAMP_TASK|CONFIG_ENERGY_MODEL|CONFIG_SCHED_CASS|CONFIG_EROFS_FS|CONFIG_F2FS_FS_COMPRESSION|CONFIG_IOSCHED_BFQ|CONFIG_HZ_250|CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_ANDROID_PARANOID_NETWORK|CONFIG_RANDOMIZE_MODULE_REGION_FULL|CONFIG_KPROBES" out/.config || true
           echo "===> Verifikasi KSU hook mode:"
           grep -E "CONFIG_KSU" out/.config || true
 
           echo "===> Mengompilasi Kernel (Image.gz & dtbo.img)..."
-          make -j$(nproc --all) ARCH=arm64 O=out \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            Image.gz dtbo.img
+          make -j$(nproc --all) "${MAKE_ARGS[@]}" Image.gz dtbo.img
 
           OUT_DIR="$GITHUB_WORKSPACE/kernel_source/out/arch/arm64/boot"
           echo "===> Verifikasi Biner Kernel & DTBO Redmi 10C (fog / khaje)..."
@@ -278,8 +311,8 @@ jobs:
       - name: Build fgetpriority LKM (non-GKI 4.19)
         run: |
           set -e
-          export PATH="$GITHUB_WORKSPACE/zyc-clang/bin:$PATH"
-          export ARCH=arm64 CC=clang
+          export PATH="$GITHUB_WORKSPACE/aosp-clang/bin:$PATH"
+          export ARCH=arm64
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
@@ -300,7 +333,9 @@ jobs:
 
           echo "===> Building fgetpriority.ko against O=out tree..."
           export CONFIG_FGETPRIORITY=m
-          make -j$(nproc --all) -C "$KSRC" O=out ARCH=arm64 CC=clang \
+          make -j$(nproc --all) -C "$KSRC" O=out ARCH=arm64 \
+            LLVM=1 \
+            LLVM_IAS=1 \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \

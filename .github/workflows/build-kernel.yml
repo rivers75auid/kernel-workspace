@@ -273,6 +273,8 @@ jobs:
             --enable DEBUG_KERNEL \
             --enable KALLSYMS \
             --enable KALLSYMS_ALL \
+            --disable SCHED_DEBUG \
+            --disable DEBUG_PREEMPT \
             --disable TOUCHSCREEN_NT36XXX \
             --disable TOUCHSCREEN_FTS \
             --disable RANDOMIZE_MODULE_REGION_FULL \

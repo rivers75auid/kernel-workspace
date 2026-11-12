@@ -1,5 +1,5 @@
 // Kairos Engine WebUI Client Controller
-// Single bridge helper + shared kairos_zram.sh CLI integration.
+// Per-item config apply + native <dialog> top-layer sheets (modern-web-guidance compliant)
 
 const CONFIG_PATH = "/data/adb/kairos_config.json";
 const ZRAM_HELPER =
@@ -11,7 +11,7 @@ function hasBridge() {
   return !!(window.ksu && window.ksu.exec);
 }
 
-function exec(cmd, timeoutMs = 12000) {
+function exec(cmd, timeoutMs = 15000) {
   return new Promise((resolve) => {
     if (!hasBridge()) {
       resolve({ errno: -1, stdout: "", stderr: "No KernelSU bridge detected" });
@@ -37,8 +37,8 @@ function exec(cmd, timeoutMs = 12000) {
   });
 }
 
-async function execHelper(subcmd) {
-  return exec(`HELPER=$(${ZRAM_HELPER}); sh "$HELPER" ${subcmd}`, 20000);
+async function execHelper(subcmd, timeoutMs = 20000) {
+  return exec(`HELPER=$(${ZRAM_HELPER}); sh "$HELPER" ${subcmd}`, timeoutMs);
 }
 
 const appState = {
@@ -54,12 +54,13 @@ const appState = {
     watermark_scale: 15,
     vfs_cache_pressure: 100,
     compaction_proactiveness: 20,
-    bg_limit: 48,
+    bg_limit: 32,
     thermal_guard: false,
     thermal_limit_c: 52,
     charge_limit: 100
   },
   wbSupported: false,
+  filterActiveOnly: false,
   display: {
     physWidth: 720,
     physHeight: 1650,
@@ -81,14 +82,13 @@ const el = {
   headerBatt: document.getElementById("header-batt"),
   footerLog: document.getElementById("footer-log"),
 
-  memFree: document.getElementById("val-mem-free"),
   memAvail: document.getElementById("val-mem-avail"),
+  memFreeInline: document.getElementById("val-mem-free-inline"),
   psiMem: document.getElementById("val-psi-mem"),
+  zramTotal: document.getElementById("val-zram-total"),
   zramUsed: document.getElementById("val-zram-used"),
   zramPhys: document.getElementById("val-zram-phys"),
-  zramRatio: document.getElementById("val-zram-ratio"),
-  zramAlgo: document.getElementById("val-zram-algo"),
-  zramTotal: document.getElementById("val-zram-total"),
+  zramRatioAlgo: document.getElementById("val-zram-ratio-algo"),
   rowWbStat: document.getElementById("row-wb-stat"),
   valWbStat: document.getElementById("val-wb-stat"),
   swapPct: document.getElementById("val-swap-pct"),
@@ -99,29 +99,45 @@ const el = {
   btnReclaim: document.getElementById("btn-reclaim"),
   btnTrim: document.getElementById("btn-trim"),
 
-  pwrStatus: document.getElementById("val-pwr-status"),
-  pwrType: document.getElementById("val-pwr-type"),
+  pwrStatusChip: document.getElementById("val-pwr-status-chip"),
+  pwrPortVolt: document.getElementById("val-pwr-port-volt"),
   pwrCurrent: document.getElementById("val-pwr-current"),
-  pwrVoltage: document.getElementById("val-pwr-voltage"),
   chkBypassMaster: document.getElementById("chk-bypass-master"),
+  sumPowerPolicy: document.getElementById("sum-power-policy"),
+
   chkThermalGuard: document.getElementById("chk-thermal-guard"),
+  groupThermalLimit: document.getElementById("group-thermal-limit"),
+  groupThermalLimitWrap: document.getElementById("group-thermal-limit-wrap"),
   groupChargeLimit: document.getElementById("group-charge-limit"),
+  btnSavePower: document.getElementById("btn-save-power"),
 
   appSearch: document.getElementById("app-search"),
+  btnFilterActive: document.getElementById("btn-filter-active"),
   appCounts: document.getElementById("val-app-counts"),
   appListContainer: document.getElementById("app-list-container"),
   btnSaveApps: document.getElementById("btn-save-apps"),
+
+  sumCache: document.getElementById("sum-cache"),
+  sumVm: document.getElementById("sum-vm"),
+  sumZram: document.getElementById("sum-zram"),
+  sumDisplay: document.getElementById("sum-display"),
+
+  groupBgLimit: document.getElementById("group-bg-limit"),
+  btnApplyCache: document.getElementById("btn-apply-cache"),
+
+  groupSwappiness: document.getElementById("group-swappiness"),
+  groupWmScale: document.getElementById("group-wm-scale"),
+  groupVfsPressure: document.getElementById("group-vfs-pressure"),
+  groupCompProact: document.getElementById("group-comp-proact"),
+  btnApplyVm: document.getElementById("btn-apply-vm"),
 
   groupCompAlgo: document.getElementById("group-comp-algo"),
   groupZramSize: document.getElementById("group-zram-size"),
   chkZramWb: document.getElementById("chk-zram-wb"),
   groupWbSizeWrap: document.getElementById("group-wb-size-wrap"),
   groupWbSize: document.getElementById("group-wb-size"),
-  groupSwappiness: document.getElementById("group-swappiness"),
-  groupWmScale: document.getElementById("group-wm-scale"),
-  groupVfsPressure: document.getElementById("group-vfs-pressure"),
-  groupBgLimit: document.getElementById("group-bg-limit"),
-  btnApplyTunables: document.getElementById("btn-apply-tunables"),
+  btnSaveZramReboot: document.getElementById("btn-save-zram-reboot"),
+  btnApplyZramLive: document.getElementById("btn-apply-zram-live"),
 
   valDisplayRes: document.getElementById("val-display-res"),
   valDisplayDpi: document.getElementById("val-display-dpi"),
@@ -147,7 +163,90 @@ async function withBusyButton(btn, pendingText, fn) {
   }
 }
 
-// Navigation Router (accessible tablist + hidden panels)
+// --- Native <dialog> Top-Layer Exit & Light-Dismiss Helpers (modern-web-guidance) ---
+let supportsDisplayTransition;
+function canTransitionDisplay() {
+  if (supportsDisplayTransition !== undefined) return supportsDisplayTransition;
+  if (!window.CSS?.supports?.("transition-behavior", "allow-discrete") || !document.body) {
+    return false;
+  }
+  const probe = document.createElement("div");
+  probe.style.cssText = "transition: display 1s allow-discrete !important; display: block;";
+  document.body.appendChild(probe);
+  getComputedStyle(probe).display;
+  probe.style.display = "none";
+  supportsDisplayTransition = getComputedStyle(probe).display === "block";
+  probe.remove();
+  return supportsDisplayTransition;
+}
+
+function supportsTopLayerExit() {
+  return Boolean(window.CSS?.supports?.("overlay", "auto") && canTransitionDisplay());
+}
+
+async function closeTopLayer(dialog) {
+  if (!dialog || !dialog.open) return;
+  if (!supportsTopLayerExit()) {
+    dialog.setAttribute("data-closing", "");
+    const animations = dialog.getAnimations ? dialog.getAnimations({ subtree: true }) : [];
+    if (animations.length > 0) {
+      await Promise.race([
+        Promise.allSettled(animations.map((a) => a.finished)),
+        new Promise((r) => setTimeout(r, 350))
+      ]);
+    }
+    if (!dialog.hasAttribute("data-closing")) return;
+    dialog.removeAttribute("data-closing");
+  }
+  dialog.close();
+}
+
+function initDialogs() {
+  document.querySelectorAll("[data-open-dialog]").forEach((trigger) => {
+    trigger.addEventListener("click", () => {
+      const dlg = document.getElementById(trigger.getAttribute("data-open-dialog"));
+      if (dlg && !dlg.open) {
+        syncTunablesUI();
+        dlg.showModal();
+      }
+    });
+  });
+
+  const supportsClosedBy = "closedBy" in HTMLDialogElement.prototype;
+  const outside = (e, dialog) => {
+    const r = dialog.getBoundingClientRect();
+    return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+  };
+
+  document.querySelectorAll("dialog.sheet-dialog").forEach((dlg) => {
+    dlg.querySelectorAll("[data-close-dialog]").forEach((btn) => {
+      btn.addEventListener("click", () => closeTopLayer(dlg));
+    });
+
+    dlg.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeTopLayer(dlg);
+    });
+
+    dlg.addEventListener("close", () => {
+      dlg.removeAttribute("data-closing");
+      dlg.returnValue = "";
+    });
+
+    if (!supportsClosedBy) {
+      let pressedOutside = false;
+      dlg.addEventListener("pointerdown", (e) => {
+        pressedOutside = outside(e, dlg);
+      });
+      dlg.addEventListener("pointerup", (e) => {
+        if (pressedOutside && outside(e, dlg)) closeTopLayer(dlg);
+        pressedOutside = false;
+      });
+    }
+  });
+}
+
+// Navigation Router
 el.tabBtns.forEach((btn) => {
   btn.addEventListener("click", () => {
     const tabId = btn.getAttribute("data-tab");
@@ -171,9 +270,7 @@ function parseKV(stdout) {
   const map = {};
   (stdout || "").split("\n").forEach((line) => {
     const idx = line.indexOf("=");
-    if (idx > 0) {
-      map[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-    }
+    if (idx > 0) map[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
   });
   return map;
 }
@@ -182,11 +279,32 @@ function escapeAttr(str) {
   return String(str).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Summary Tile Synchronizer
+function updateSummaryTiles() {
+  const c = appState.config;
+  if (el.sumPowerPolicy) {
+    const tg = c.thermal_guard ? `On (${c.thermal_limit_c || 52}°C)` : "Off";
+    el.sumPowerPolicy.textContent = `Thermal ${tg} · Limit ${c.charge_limit || 100}%`;
+  }
+  if (el.sumCache) {
+    el.sumCache.textContent = `Limit ${c.bg_limit || 32} cached apps · Instant apply`;
+  }
+  if (el.sumVm) {
+    el.sumVm.textContent =
+      `Swap ${c.swappiness} · WM ${c.watermark_scale || 15} · VFS ${c.vfs_cache_pressure || 100}`;
+  }
+  if (el.sumZram) {
+    const gb = ((parseInt(c.zram_size, 10) || 3072) / 1024).toFixed(1);
+    const wb = c.zram_writeback ? `WB ${c.wb_size_mb || 1024} MB` : "WB Off";
+    el.sumZram.textContent = `${gb} GB · ${c.comp_algorithm || "zstd"} · ${wb}`;
+  }
+}
+
 // Telemetry Poller
 async function fetchTelemetry() {
   const res = await execHelper("status");
   if (res.errno !== 0) {
-    log("Telemetry fetch failed: " + (res.stderr || `errno ${res.errno}`));
+    log("Telemetry error: " + (res.stderr || `errno ${res.errno}`));
     return;
   }
 
@@ -217,13 +335,14 @@ async function fetchTelemetry() {
     el.psiMem.textContent = psiMatch ? `PSI avg10 ${psiMatch[1]}%` : "PSI N/A";
   }
 
-  el.memFree.textContent = memFreeMb + " MB";
   el.memAvail.textContent = memAvailMb + " MB";
+  if (el.memFreeInline) el.memFreeInline.textContent = `Free ${memFreeMb} MB`;
+  el.zramTotal.textContent = swapTotalMb + " MB";
   el.zramUsed.textContent = origSizeMb + " MB";
   el.zramPhys.textContent = compSizeMb + " MB";
-  el.zramRatio.textContent = ratio + " x";
-  el.zramTotal.textContent = swapTotalMb + " MB";
-  if (el.zramAlgo) el.zramAlgo.textContent = kv.COMP_ALGO || "unknown";
+  if (el.zramRatioAlgo) {
+    el.zramRatioAlgo.textContent = `${ratio}x · ${kv.COMP_ALGO || "?"}`;
+  }
 
   appState.wbSupported = kv.WB_SUPPORTED === "1";
   const bdNode = kv.BACKING_DEV || "none";
@@ -235,8 +354,7 @@ async function fetchTelemetry() {
     if (bdNode && bdNode !== "none") {
       el.rowWbStat.hidden = false;
       const bdParts = (kv.BD_STAT || "").split(/\s+/).filter(Boolean);
-      const writtenKb = (parseInt(bdParts[2], 10) || 0) * 4;
-      const writtenMb = (writtenKb / 1024).toFixed(1);
+      const writtenMb = (((parseInt(bdParts[2], 10) || 0) * 4) / 1024).toFixed(1);
       el.valWbStat.textContent = `${bdNode} (${writtenMb} MB out)`;
     } else {
       el.rowWbStat.hidden = true;
@@ -245,16 +363,14 @@ async function fetchTelemetry() {
 
   const swapPct = swapTotalMb > 0 ? Math.round((origSizeMb / swapTotalMb) * 100) : 0;
   const boundedPct = Math.min(100, Math.max(0, swapPct));
-  el.swapPct.textContent = boundedPct + "%";
+  const swapStateText = boundedPct > 85 ? "High" : boundedPct > 65 ? "Elevated" : "Normal";
+  el.swapPct.textContent = `${boundedPct}% · ${swapStateText}`;
   el.barSwap.style.width = boundedPct + "%";
   if (el.barSwapTrack) el.barSwapTrack.setAttribute("aria-valuenow", String(boundedPct));
-  if (boundedPct > 85) {
-    el.barSwap.style.backgroundColor = "var(--status-err)";
-  } else if (boundedPct > 65) {
-    el.barSwap.style.backgroundColor = "var(--status-warn)";
-  } else {
-    el.barSwap.style.backgroundColor = "var(--accent)";
-  }
+
+  if (boundedPct > 85) el.barSwap.style.backgroundColor = "var(--status-err)";
+  else if (boundedPct > 65) el.barSwap.style.backgroundColor = "var(--status-warn)";
+  else el.barSwap.style.backgroundColor = "var(--accent)";
 
   // Power
   const tempRaw = parseInt(kv.PWR_TEMP, 10) || 0;
@@ -277,11 +393,11 @@ async function fetchTelemetry() {
   const voltageV = (voltRaw / 1000000).toFixed(2);
   const watt = ((currentMa * parseFloat(voltageV || "0")) / 1000).toFixed(1);
 
-  el.pwrStatus.textContent = chargeEnabled ? statusStr : "Charging paused";
-  el.pwrType.textContent = typeStr;
+  if (el.pwrStatusChip) el.pwrStatusChip.textContent = chargeEnabled ? statusStr : "Paused";
+  if (el.pwrPortVolt) el.pwrPortVolt.textContent = `${typeStr} · ${voltageV} V`;
   const sign = statusStr === "Charging" ? "+" : statusStr === "Discharging" ? "-" : "";
-  el.pwrCurrent.textContent = sign + currentMa + " mA";
-  el.pwrVoltage.textContent = voltageV + " V";
+  if (el.pwrCurrent) el.pwrCurrent.textContent = `${sign}${currentMa} mA`;
+
   el.headerTemp.textContent = tempC + "°C";
   el.headerCharge.textContent = watt + "W";
   el.headerBatt.textContent = (capVal !== "" ? capVal : "--") + "%";
@@ -303,15 +419,13 @@ el.btnCompact.addEventListener("click", () =>
   })
 );
 
-if (el.btnReclaim) {
-  el.btnReclaim.addEventListener("click", () =>
-    withBusyButton(el.btnReclaim, "Reclaiming...", async () => {
-      await execHelper("compact hard");
-      await fetchTelemetry();
-      log("Deep reclaim & cache flush complete.");
-    })
-  );
-}
+el.btnReclaim.addEventListener("click", () =>
+  withBusyButton(el.btnReclaim, "Reclaiming...", async () => {
+    await execHelper("compact hard");
+    await fetchTelemetry();
+    log("Deep reclaim & cache flush complete.");
+  })
+);
 
 el.btnTrim.addEventListener("click", () =>
   withBusyButton(el.btnTrim, "Trimming...", async () => {
@@ -347,13 +461,6 @@ el.chkBypassMaster.addEventListener("change", async (e) => {
   await fetchTelemetry();
 });
 
-el.chkThermalGuard.addEventListener("change", async (e) => {
-  appState.config.thermal_guard = e.target.checked;
-  if (await saveConfig()) {
-    log("Thermal guard " + (e.target.checked ? "enabled" : "disabled") + ".");
-  }
-});
-
 // App Manager
 function updateRuleSummary() {
   if (!el.appCounts) return;
@@ -378,24 +485,29 @@ async function loadPackages() {
 function renderAppList() {
   updateRuleSummary();
   const query = (el.appSearch.value || "").toLowerCase().trim();
-  const list = appState.installedPackages.filter((pkg) => pkg.toLowerCase().includes(query));
+  const games = appState.config.auto_bypass_games || [];
+  const swaps = appState.config.heavy_swap_apps || [];
+
+  const list = appState.installedPackages.filter((pkg) => {
+    if (query && !pkg.toLowerCase().includes(query)) return false;
+    if (appState.filterActiveOnly) return games.includes(pkg) || swaps.includes(pkg);
+    return true;
+  });
 
   if (list.length === 0) {
-    el.appListContainer.innerHTML = '<div class="empty-state">No packages match this filter. Adjust the query to manage rules.</div>';
+    el.appListContainer.innerHTML = '<div class="empty-state">No packages match this filter.</div>';
     return;
   }
 
   let html = "";
   list.forEach((pkg) => {
     const safePkg = escapeAttr(pkg);
-    const isGame = (appState.config.auto_bypass_games || []).includes(pkg);
-    const isSwap = (appState.config.heavy_swap_apps || []).includes(pkg);
+    const isGame = games.includes(pkg);
+    const isSwap = swaps.includes(pkg);
 
     html += `
       <div class="app-row" data-pkg="${safePkg}">
-        <div class="app-meta">
-          <span class="app-pkg">${safePkg}</span>
-        </div>
+        <div class="app-meta"><span class="app-pkg">${safePkg}</span></div>
         <div class="app-tags">
           <button type="button" class="tag-btn ${isGame ? "active-game" : ""}" aria-pressed="${isGame}" data-action="toggle-game" data-pkg="${safePkg}">
             ${isGame ? "Game on" : "Game"}
@@ -411,6 +523,14 @@ function renderAppList() {
 }
 
 el.appSearch.addEventListener("input", renderAppList);
+
+if (el.btnFilterActive) {
+  el.btnFilterActive.addEventListener("click", () => {
+    appState.filterActiveOnly = !appState.filterActiveOnly;
+    el.btnFilterActive.setAttribute("aria-pressed", String(appState.filterActiveOnly));
+    renderAppList();
+  });
+}
 
 el.appListContainer.addEventListener("click", (e) => {
   const btn = e.target.closest(".tag-btn");
@@ -431,7 +551,7 @@ el.appListContainer.addEventListener("click", (e) => {
 el.btnSaveApps.addEventListener("click", () =>
   withBusyButton(el.btnSaveApps, "Saving...", async () => {
     if (await saveConfig()) {
-      log("Per-app rules saved to /data/adb/kairos_config.json.");
+      log("Per-app rules saved instantly.");
     }
   })
 );
@@ -458,10 +578,11 @@ async function saveConfig() {
     log("Save config failed: " + (res.stderr || `errno ${res.errno}`));
     return false;
   }
+  updateSummaryTiles();
   return true;
 }
 
-// Tunables Controller
+// Pill Selection Wiring
 function setupPillGroup(groupEl, configKey, onPick) {
   if (!groupEl) return;
   groupEl.addEventListener("click", (e) => {
@@ -479,26 +600,28 @@ function setupPillGroup(groupEl, configKey, onPick) {
   });
 }
 
-setupPillGroup(el.groupCompAlgo, "comp_algorithm");
-setupPillGroup(el.groupZramSize, "zram_size");
-setupPillGroup(el.groupWbSize, "wb_size_mb");
+setupPillGroup(el.groupBgLimit, "bg_limit");
 setupPillGroup(el.groupSwappiness, "swappiness");
 setupPillGroup(el.groupWmScale, "watermark_scale");
 setupPillGroup(el.groupVfsPressure, "vfs_cache_pressure");
-setupPillGroup(el.groupBgLimit, "bg_limit");
+setupPillGroup(el.groupCompProact, "compaction_proactiveness");
+setupPillGroup(el.groupCompAlgo, "comp_algorithm");
+setupPillGroup(el.groupZramSize, "zram_size");
+setupPillGroup(el.groupWbSize, "wb_size_mb");
+setupPillGroup(el.groupThermalLimit, "thermal_limit_c");
+setupPillGroup(el.groupChargeLimit, "charge_limit");
+
+if (el.chkThermalGuard) {
+  el.chkThermalGuard.addEventListener("change", (e) => {
+    appState.config.thermal_guard = e.target.checked;
+    if (el.groupThermalLimitWrap) el.groupThermalLimitWrap.hidden = !e.target.checked;
+  });
+}
 
 if (el.chkZramWb) {
   el.chkZramWb.addEventListener("change", (e) => {
     appState.config.zram_writeback = e.target.checked;
     if (el.groupWbSizeWrap) el.groupWbSizeWrap.hidden = !e.target.checked;
-  });
-}
-
-if (el.groupChargeLimit) {
-  setupPillGroup(el.groupChargeLimit, "charge_limit", async (val) => {
-    if (await saveConfig()) {
-      log(`Charge limit set to ${val}%.`);
-    }
   });
 }
 
@@ -511,50 +634,108 @@ function syncTunablesUI() {
       b.setAttribute("aria-pressed", match ? "true" : "false");
     });
   };
-  selectPill(el.groupCompAlgo, appState.config.comp_algorithm || "zstd");
-  selectPill(el.groupZramSize, appState.config.zram_size || "3072M");
-  selectPill(el.groupWbSize, appState.config.wb_size_mb || 1024);
-  selectPill(el.groupSwappiness, appState.config.swappiness);
-  selectPill(el.groupWmScale, appState.config.watermark_scale || 15);
-  selectPill(el.groupVfsPressure, appState.config.vfs_cache_pressure || 100);
-  selectPill(el.groupBgLimit, appState.config.bg_limit || 48);
-  selectPill(el.groupChargeLimit, appState.config.charge_limit || 100);
-  if (el.chkThermalGuard) el.chkThermalGuard.checked = appState.config.thermal_guard === true;
+  const c = appState.config;
+  selectPill(el.groupBgLimit, c.bg_limit || 32);
+  selectPill(el.groupSwappiness, c.swappiness);
+  selectPill(el.groupWmScale, c.watermark_scale || 15);
+  selectPill(el.groupVfsPressure, c.vfs_cache_pressure || 100);
+  selectPill(el.groupCompProact, c.compaction_proactiveness ?? 20);
+  selectPill(el.groupCompAlgo, c.comp_algorithm || "zstd");
+  selectPill(el.groupZramSize, c.zram_size || "3072M");
+  selectPill(el.groupWbSize, c.wb_size_mb || 1024);
+  selectPill(el.groupThermalLimit, c.thermal_limit_c || 52);
+  selectPill(el.groupChargeLimit, c.charge_limit || 100);
+
+  if (el.chkThermalGuard) {
+    el.chkThermalGuard.checked = c.thermal_guard === true;
+    if (el.groupThermalLimitWrap) el.groupThermalLimitWrap.hidden = !el.chkThermalGuard.checked;
+  }
   if (el.chkZramWb) {
-    el.chkZramWb.checked = appState.config.zram_writeback === true;
+    el.chkZramWb.checked = c.zram_writeback === true;
     if (el.groupWbSizeWrap) el.groupWbSizeWrap.hidden = !el.chkZramWb.checked;
   }
+  updateSummaryTiles();
 }
 
-el.btnApplyTunables.addEventListener("click", () =>
-  withBusyButton(el.btnApplyTunables, "Applying...", async () => {
-    if (!(await saveConfig())) return;
+// Per-Item Fast Apply Handlers (Zero unrelated overhead!)
+if (el.btnSavePower) {
+  el.btnSavePower.addEventListener("click", () =>
+    withBusyButton(el.btnSavePower, "Saving...", async () => {
+      if (await saveConfig()) {
+        await closeTopLayer(document.getElementById("dlg-power"));
+        log("Power policy updated.");
+      }
+    })
+  );
+}
 
-    const c = appState.config;
-    const limit = c.bg_limit || 48;
-    const wbFlag = c.zram_writeback ? 1 : 0;
+if (el.btnApplyCache) {
+  el.btnApplyCache.addEventListener("click", () =>
+    withBusyButton(el.btnApplyCache, "Applying...", async () => {
+      if (!(await saveConfig())) return;
+      const limit = appState.config.bg_limit || 32;
+      const res = await exec(
+        `resetprop ro.sys.fw.bg_apps_limit ${limit}; ` +
+        `device_config put activity_manager max_cached_processes ${limit} 2>/dev/null`
+      );
+      await closeTopLayer(document.getElementById("dlg-cache"));
+      log(res.errno === 0 ? `Cache limit applied (${limit} apps, no swapoff).` : "Failed updating cache limit.");
+    })
+  );
+}
 
-    await exec(
-      `resetprop ro.sys.fw.bg_apps_limit ${limit}; ` +
-      `device_config put activity_manager max_cached_processes ${limit} 2>/dev/null`
-    );
+if (el.btnApplyVm) {
+  el.btnApplyVm.addEventListener("click", () =>
+    withBusyButton(el.btnApplyVm, "Applying...", async () => {
+      if (!(await saveConfig())) return;
+      const c = appState.config;
+      const vres = await execHelper(
+        `vm ${c.swappiness} ${c.vfs_cache_pressure || 100} ${c.watermark_scale || 15} ${c.compaction_proactiveness ?? 20}`,
+        8000
+      );
+      await closeTopLayer(document.getElementById("dlg-vm"));
+      log(vres.stdout.includes("VM_OK") ? "VM tunables applied instantly." : "VM apply failed.");
+    })
+  );
+}
 
-    const zres = await execHelper(
-      `apply "${c.zram_size || "3072M"}" "${c.comp_algorithm || "zstd"}" ` +
-      `${wbFlag} ${c.wb_size_mb || 1024} ${c.swappiness || 100} ` +
-      `${c.vfs_cache_pressure || 100} ${c.watermark_scale || 15} ${c.compaction_proactiveness || 20}`
-    );
+if (el.btnSaveZramReboot) {
+  el.btnSaveZramReboot.addEventListener("click", () =>
+    withBusyButton(el.btnSaveZramReboot, "Saving...", async () => {
+      if (await saveConfig()) {
+        await closeTopLayer(document.getElementById("dlg-zram"));
+        log("ZRAM config saved for next boot (zero live freeze).");
+      }
+    })
+  );
+}
 
-    await fetchTelemetry();
-    if (zres.stdout.includes("ZRAM_FAIL") || zres.stdout.includes("DISKSIZE_FAIL")) {
-      log("ZRAM apply failed; check log or reduce size.");
-    } else if (zres.stdout.includes("WB_UNSUPPORTED")) {
-      log("Tunables saved (writeback unsupported by this kernel).");
-    } else {
-      log("Kernel tunables applied & persisted.");
-    }
-  })
-);
+if (el.btnApplyZramLive) {
+  el.btnApplyZramLive.addEventListener("click", () =>
+    withBusyButton(el.btnApplyZramLive, "Rebuilding...", async () => {
+      if (!(await saveConfig())) return;
+      const c = appState.config;
+      const wbFlag = c.zram_writeback ? 1 : 0;
+      const zres = await execHelper(
+        `zram "${c.zram_size || "3072M"}" "${c.comp_algorithm || "zstd"}" ${wbFlag} ${c.wb_size_mb || 1024}`,
+        45000
+      );
+      await fetchTelemetry();
+      await closeTopLayer(document.getElementById("dlg-zram"));
+      if (zres.errno === -2) {
+        log("Live ZRAM rebuild timed out (config saved for reboot).");
+      } else if (zres.stdout.includes("ZRAM_FAIL") || zres.stdout.includes("DISKSIZE_FAIL")) {
+        log("ZRAM apply failed; check log or reduce size.");
+      } else if (zres.stdout.includes("WB_UNSUPPORTED")) {
+        log("ZRAM applied (writeback unsupported by this kernel).");
+      } else if (zres.stdout.includes("ZRAM_UNCHANGED")) {
+        log("ZRAM already matches active settings.");
+      } else {
+        log("ZRAM rebuilt & persisted.");
+      }
+    })
+  );
+}
 
 // Display Manager
 async function fetchDisplayInfo() {
@@ -592,6 +773,7 @@ async function fetchDisplayInfo() {
 
   if (el.valDisplayRes) el.valDisplayRes.textContent = `${currW}x${currH}`;
   if (el.valDisplayDpi) el.valDisplayDpi.textContent = `${currDpi} dpi`;
+  if (el.sumDisplay) el.sumDisplay.textContent = `${currW}×${currH} · ${currDpi} dpi`;
 }
 
 if (el.groupDisplayScale) {
@@ -617,6 +799,7 @@ if (el.btnApplyDisplay) {
         await exec(`wm size ${targetW}x${targetH} && wm density ${targetDpi}`);
       }
       await fetchDisplayInfo();
+      await closeTopLayer(document.getElementById("dlg-display"));
       log(`Display scale applied (${Math.round(scale * 100)}%).`);
     })
   );
@@ -633,6 +816,7 @@ if (el.btnResetDisplay) {
       }
       appState.display.selectedScale = 1.0;
       await fetchDisplayInfo();
+      await closeTopLayer(document.getElementById("dlg-display"));
       log("Display reset to native 100%.");
     })
   );
@@ -651,6 +835,7 @@ async function pollTelemetry() {
 }
 
 async function init() {
+  initDialogs();
   if (!hasBridge()) {
     log("KernelSU bridge not found. Open inside KernelSU Manager.");
     return;

@@ -1,27 +1,37 @@
-/* Kairos Engine - Dark Instrument Dashboard
-   Strict 2 neutral surfaces + 1 steel-blue accent; 1px hairline + dark top highlight.
-   Mobile WebView safe: >=44px touch targets, env(safe-area-inset-*), 320px reflow. */
+/* Kairos Engine - Carbon Obsidian Hardware Telemetry & Dialog Sheet UI */
 
 :root {
-  --bg-base: #0b0d11;
-  --bg-surface: #13171f;
-  --bg-elevated: #1a202b;
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.16);
+  color-scheme: dark;
+  --bg-base: #0a0b0d;
+  --bg-surface: #121418;
+  --bg-elevated: #191c22;
+  --bg-interactive: #21252d;
+
+  /* Borders: structural hairlines + >=3:1 component boundaries (WCAG 1.4.11) */
+  --border-subtle: #252932;
+  --border-control: #4a5263;
+  --border-strong: #626c82;
   --highlight-top: rgba(255, 255, 255, 0.05);
-  --text-primary: #e8edf4;
-  --text-secondary: #a2afbf;
-  --text-muted: #7f8d9f;
-  --accent: #5da9e9;
-  --accent-press: #4992cf;
-  --accent-tint: rgba(93, 169, 233, 0.14);
-  --status-ok: #5fb878;
-  --status-warn: #d8a657;
-  --status-err: #d8796e;
+
+  /* Accessible dark-surface ink (>=4.5:1 contrast) */
+  --text-primary: #eef2f6;
+  --text-secondary: #c2cbd8;
+  --text-muted: #98a2b3;
+
+  /* Mineral Jade / Teal hardware accent + semantic tokens */
+  --accent: #2dd4bf;
+  --accent-press: #14b8a6;
+  --accent-ink: #071916;
+  --accent-tint: rgba(45, 212, 191, 0.14);
+
+  --status-ok: #4ade80;
+  --status-warn: #f59e0b;
+  --status-err: #f87171;
+
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --radius-card: 12px;
-  --radius-control: 8px;
+  --radius-card: 14px;
+  --radius-control: 9px;
   --target-size: 44px;
 }
 
@@ -49,7 +59,7 @@ body {
 }
 
 :focus-visible {
-  outline: 3px solid var(--accent);
+  outline: 2.5px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -65,9 +75,9 @@ body {
   white-space: nowrap !important;
 }
 
-/* Header */
+/* Compact Header (< 12% viewport height) */
 .app-header {
-  padding: max(14px, env(safe-area-inset-top, 0px)) 16px 12px;
+  padding: max(10px, env(safe-area-inset-top, 0px)) 16px 10px;
   border-bottom: 1px solid var(--border-subtle);
   background-color: var(--bg-surface);
 }
@@ -82,13 +92,13 @@ body {
 .brand {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 7px;
 }
 
 .brand-title {
   font-size: 16px;
   font-weight: 600;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
   color: var(--text-primary);
   text-wrap: balance;
 }
@@ -102,9 +112,10 @@ body {
 .status-badge {
   font-family: var(--font-mono);
   font-size: 11px;
-  padding: 3px 8px;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--border-subtle);
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border-control);
   background-color: var(--bg-elevated);
   color: var(--text-secondary);
   white-space: nowrap;
@@ -114,23 +125,23 @@ body {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  margin-top: 12px;
+  margin-top: 9px;
 }
 
 .stat-cell {
   background-color: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
-  padding: 8px 10px;
+  padding: 6px 10px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
 }
 
 .stat-num {
   font-family: var(--font-mono);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
@@ -153,7 +164,7 @@ body {
 
 @media (min-width: 700px) {
   .content-container {
-    max-width: 680px;
+    max-width: 660px;
     margin: 0 auto;
   }
 }
@@ -168,7 +179,7 @@ body {
   display: flex;
 }
 
-/* Cards: 1 step off ground, hairline border, crisp dark top highlight */
+/* Cards */
 .card {
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
@@ -177,7 +188,7 @@ body {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .card-head {
@@ -188,7 +199,7 @@ body {
 }
 
 .card-title {
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 600;
   color: var(--text-primary);
   text-wrap: balance;
@@ -212,22 +223,23 @@ body {
   gap: 4px;
 }
 
-.metric-hero-meta {
+.metric-hero-meta,
+.metric-hero-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
 }
 
 .metric-chip {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--text-secondary);
 }
 
 .metric-hero-val {
   font-family: var(--font-mono);
-  font-size: 28px;
+  font-size: 27px;
   font-weight: 600;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
@@ -243,10 +255,10 @@ body {
   background-color: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
-  padding: 10px 12px;
+  padding: 9px 11px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -257,7 +269,7 @@ body {
 
 .metric-val {
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
@@ -299,9 +311,10 @@ body {
 }
 
 .progress-bar {
-  height: 6px;
+  height: 7px;
   background-color: var(--bg-elevated);
-  border-radius: 3px;
+  border: 1px solid var(--border-control);
+  border-radius: 4px;
   overflow: hidden;
 }
 
@@ -309,6 +322,66 @@ body {
   height: 100%;
   background-color: var(--accent);
   transition: width 0.25s ease, background-color 0.25s ease;
+}
+
+/* Interactive Config Tiles (launch native <dialog> sheets) */
+.tile-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.config-tile {
+  width: 100%;
+  min-height: 58px;
+  padding: 12px 14px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background-color 0.14s ease, transform 0.14s ease;
+}
+
+.config-tile:hover {
+  border-color: var(--accent);
+  background-color: var(--bg-interactive);
+}
+
+.config-tile:active {
+  transform: scale(0.99);
+}
+
+.tile-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tile-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tile-sub {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--accent);
+}
+
+.tile-arrow {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
 /* Controls & Accessible Switches */
@@ -319,6 +392,11 @@ body {
   gap: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--border-subtle);
+}
+
+.control-row-first {
+  padding-top: 0;
+  border-top: none;
 }
 
 .control-info {
@@ -348,8 +426,8 @@ body {
   -webkit-appearance: none;
   position: relative;
   flex-shrink: 0;
-  width: 48px;
-  min-inline-size: 48px;
+  width: 50px;
+  min-inline-size: 50px;
   height: 28px;
   min-block-size: var(--target-size);
   padding: 8px 0;
@@ -362,11 +440,12 @@ body {
 .kairos-switch::before {
   content: "";
   display: block;
-  width: 48px;
+  width: 50px;
   height: 28px;
   border-radius: 14px;
-  background-color: var(--border-strong);
-  transition: background-color 0.15s ease;
+  border: 1.5px solid var(--border-strong);
+  background-color: var(--bg-interactive);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .kairos-switch::after {
@@ -383,11 +462,12 @@ body {
 
 .kairos-switch:checked::before {
   background-color: var(--accent);
+  border-color: var(--accent);
 }
 
 .kairos-switch:checked::after {
-  transform: translateX(20px);
-  background-color: #0b0d11;
+  transform: translateX(22px);
+  background-color: var(--accent-ink);
 }
 
 .kairos-switch:disabled {
@@ -396,7 +476,8 @@ body {
 }
 
 /* Buttons */
-.card-actions {
+.card-actions,
+.dialog-foot {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -405,11 +486,11 @@ body {
 .btn {
   flex: 1 1 auto;
   min-height: var(--target-size);
-  min-width: 96px;
+  min-width: 92px;
   padding: 10px 14px;
   background-color: var(--bg-elevated);
   color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
   font-size: 13px;
   font-weight: 600;
@@ -417,15 +498,16 @@ body {
   display: inline-flex;
   justify-content: center;
   align-items: center;
-  transition: background-color 0.12s ease, border-color 0.12s ease;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
 }
 
 .btn:hover:not(:disabled) {
   border-color: var(--border-strong);
+  background-color: var(--bg-interactive);
 }
 
 .btn:active:not(:disabled) {
-  background-color: var(--border-strong);
+  transform: scale(0.985);
 }
 
 .btn:disabled {
@@ -436,11 +518,12 @@ body {
 .btn-primary {
   background-color: var(--accent);
   border-color: var(--accent);
-  color: #0b0d11;
+  color: var(--accent-ink);
 }
 
-.btn-primary:active:not(:disabled) {
+.btn-primary:hover:not(:disabled) {
   background-color: var(--accent-press);
+  border-color: var(--accent-press);
 }
 
 .btn-sm {
@@ -451,18 +534,32 @@ body {
   font-size: 12.5px;
 }
 
-/* Setting Groups & Pills */
+.btn-sm[aria-pressed="true"] {
+  background-color: var(--accent-tint);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-icon {
+  width: var(--target-size);
+  height: var(--target-size);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Setting Groups & Pills inside Dialogs */
 .setting-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.setting-group:first-of-type {
-  padding-top: 0;
-  border-top: none;
 }
 
 .setting-group[hidden] {
@@ -482,24 +579,17 @@ body {
   text-wrap: pretty;
 }
 
-.split-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .option-pill-group {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 2px;
 }
 
 .pill-btn {
   min-height: var(--target-size);
   padding: 8px 12px;
   background-color: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
   color: var(--text-secondary);
   font-size: 12.5px;
@@ -513,16 +603,166 @@ body {
 .pill-btn.active {
   background-color: var(--accent);
   border-color: var(--accent);
-  color: #0b0d11;
+  color: var(--accent-ink);
+}
+
+.notice-banner {
+  padding: 10px 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  background-color: rgba(245, 158, 11, 0.1);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.notice-banner code {
+  font-family: var(--font-mono);
+  color: var(--status-warn);
+}
+
+/* Native Modal Dialog Bottom/Center Sheet (modern-web-guidance compliant) */
+dialog.sheet-dialog {
+  margin: auto auto 0;
+  width: min(100%, 540px);
+  max-width: 100vw;
+  max-height: 86dvh;
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-control);
+  border-bottom: none;
+  border-radius: 16px 16px 0 0;
+  padding: 0;
+  box-shadow: 0 -10px 32px rgba(0, 0, 0, 0.55);
+
+  /* Exit state + top-layer discrete transitions (transition-behavior kept separate!) */
+  opacity: 0;
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: 0.22s;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  transition-behavior: allow-discrete;
+}
+
+@media (min-width: 600px) {
+  dialog.sheet-dialog {
+    margin: auto;
+    border-bottom: 1px solid var(--border-control);
+    border-radius: var(--radius-card);
+  }
+}
+
+/* Scroll lock containment (never overflow:hidden on body/html) */
+dialog.sheet-dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog.sheet-dialog::backdrop {
+  background-color: rgba(0, 0, 0, 0);
+  backdrop-filter: blur(3px);
+  overflow: hidden;
+  overscroll-behavior: contain;
+  transition-property: background-color, display, overlay;
+  transition-duration: 0.22s;
+  transition-timing-function: ease-out;
+  transition-behavior: allow-discrete;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog.sheet-dialog {
+    transform: translateY(20px);
+  }
+}
+
+dialog.sheet-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog.sheet-dialog[open]:where(:not([data-closing])) {
+  opacity: 1;
+}
+
+@starting-style {
+  dialog.sheet-dialog[open]:where(:not([data-closing])) {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog.sheet-dialog[open]:where(:not([data-closing])) {
+    transform: translateY(0);
+  }
+  @starting-style {
+    dialog.sheet-dialog[open]:where(:not([data-closing])) {
+      transform: translateY(20px);
+    }
+  }
+}
+
+dialog.sheet-dialog[open]:where(:not([data-closing]))::backdrop {
+  background-color: rgba(0, 0, 0, 0.65);
+}
+
+@starting-style {
+  dialog.sheet-dialog[open]:where(:not([data-closing]))::backdrop {
+    background-color: rgba(0, 0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog.sheet-dialog,
+  dialog.sheet-dialog::backdrop {
+    transition-duration: 0.1s;
+  }
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.dialog-body {
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dialog-foot {
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border-subtle);
+  background-color: var(--bg-surface);
 }
 
 /* App List */
+.search-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.search-box {
+  flex: 1;
+  min-width: 0;
+}
+
 .search-box input {
   width: 100%;
   min-height: var(--target-size);
-  padding: 8px 14px;
+  padding: 8px 12px;
   background-color: var(--bg-elevated);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-control);
   border-radius: var(--radius-control);
   color: var(--text-primary);
   font-size: 13.5px;
@@ -535,7 +775,7 @@ body {
 }
 
 .app-list {
-  max-height: 44vh;
+  max-height: 46vh;
   overflow-y: auto;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
@@ -580,7 +820,7 @@ body {
   font-size: 11.5px;
   font-weight: 600;
   border-radius: var(--radius-control);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-control);
   background-color: var(--bg-surface);
   color: var(--text-secondary);
   cursor: pointer;
@@ -593,7 +833,7 @@ body {
 }
 
 .tag-btn.active-swap {
-  background-color: rgba(216, 166, 87, 0.14);
+  background-color: rgba(245, 158, 11, 0.16);
   border-color: var(--status-warn);
   color: var(--status-warn);
 }
@@ -642,4 +882,26 @@ body {
 .nav-btn.active {
   color: var(--accent);
   border-top-color: var(--accent);
+}
+
+/* Forced Colors Mode support */
+@media (forced-colors: active) {
+  .card,
+  .config-tile,
+  .btn,
+  .pill-btn,
+  .tag-btn,
+  dialog.sheet-dialog,
+  .kairos-switch::before {
+    border: 1px solid ButtonText;
+    background-color: Canvas;
+    color: CanvasText;
+  }
+  .btn-primary,
+  .pill-btn.active,
+  .kairos-switch:checked::before {
+    background-color: Highlight;
+    border-color: Highlight;
+    color: HighlightText;
+  }
 }

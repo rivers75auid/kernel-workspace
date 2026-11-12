@@ -27,7 +27,7 @@ if [ ! -f "$CONFIG" ]; then
   "watermark_scale": 15,
   "vfs_cache_pressure": 100,
   "compaction_proactiveness": 20,
-  "bg_limit": 48,
+  "bg_limit": 32,
   "thermal_guard": false,
   "thermal_limit_c": 52,
   "charge_limit": 100
@@ -67,16 +67,16 @@ WB_SIZE=$(cfg_val wb_size_mb); [ -z "$WB_SIZE" ] && WB_SIZE=1024
 WM_SCALE=$(cfg_val watermark_scale); [ -z "$WM_SCALE" ] && WM_SCALE=15
 VFS_PRESSURE=$(cfg_val vfs_cache_pressure); [ -z "$VFS_PRESSURE" ] && VFS_PRESSURE=100
 COMP_PROACT=$(cfg_val compaction_proactiveness); [ -z "$COMP_PROACT" ] && COMP_PROACT=20
-BG_LIMIT=$(cfg_val bg_limit); [ -z "$BG_LIMIT" ] && BG_LIMIT=48
+BG_LIMIT=$(cfg_val bg_limit); [ -z "$BG_LIMIT" ] && BG_LIMIT=32
 
-# 1. Align ActivityManager & LMKD (keep PSI active; disable competing legacy minfree/phantom kills)
+# 1. Align ActivityManager & LMKD (keep PSI active; prune cached junk without starving IME/UI)
 resetprop ro.sys.fw.bg_apps_limit "$BG_LIMIT"
 if command -v device_config >/dev/null 2>&1; then
   device_config put activity_manager max_cached_processes "$BG_LIMIT" 2>/dev/null
   device_config put activity_manager max_phantom_processes 64 2>/dev/null
   device_config put activity_manager use_compaction false 2>/dev/null
   device_config put activity_manager proactive_kills_enabled false 2>/dev/null
-  device_config put activity_manager no_kill_cached_processes_post_boot_completed_duration_millis 2147483647 2>/dev/null
+  device_config delete activity_manager no_kill_cached_processes_post_boot_completed_duration_millis 2>/dev/null
   if [ "$(getprop ro.lmk.use_psi)" = "true" ]; then
     device_config put lmkd_native use_minfree_levels false 2>/dev/null
   fi
@@ -198,11 +198,13 @@ fi
       is_game=1
     fi
 
-    # Real Heavy Swap Enforcement (only when app is NOT foreground; safe OOM/swappiness deprioritization)
+    # Real Heavy Swap Enforcement (only when app is NOT foreground and NEVER on active IME)
     if [ -n "$swap_block" ] && [ $((tick % 5)) -eq 0 ]; then
+      ime_pkg=$(settings get secure default_input_method 2>/dev/null | cut -d/ -f1)
       printf '%s' "$swap_block" | tr ',' '\n' | tr -d ' "' | while IFS= read -r spkg; do
         [ -n "$spkg" ] || continue
         [ "$spkg" = "$curr_pkg" ] && continue
+        [ -n "$ime_pkg" ] && [ "$spkg" = "$ime_pkg" ] && continue
         for pid in $(pidof "$spkg" 2>/dev/null); do
           if [ -w "/proc/$pid/oom_score_adj" ]; then
             cur_oom=$(cat "/proc/$pid/oom_score_adj" 2>/dev/null)

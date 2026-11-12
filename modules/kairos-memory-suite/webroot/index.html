@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b0d11">
+  <meta name="theme-color" content="#0a0b0d">
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self';">
   <title>Kairos Engine</title>
@@ -25,7 +25,7 @@
         <span id="header-temp" class="stat-num">--</span>
       </div>
       <div class="stat-cell">
-        <span class="stat-label">Power Draw</span>
+        <span class="stat-label">Power</span>
         <span id="header-charge" class="stat-num">--</span>
       </div>
       <div class="stat-cell">
@@ -36,7 +36,7 @@
   </header>
 
   <main id="main-content" class="content-container">
-    <!-- Panel 1: Telemetry & Power -->
+    <!-- Tab 1: Live Status -->
     <section id="tab-telemetry" class="tab-pane active" role="tabpanel" aria-labelledby="nav-telemetry">
       <article class="card">
         <div class="card-head">
@@ -49,14 +49,13 @@
             <span class="metric-label">Physical Available</span>
             <span id="val-psi-mem" class="metric-chip">PSI --</span>
           </div>
-          <span id="val-mem-avail" class="metric-hero-val">-- MB</span>
+          <div class="metric-hero-row">
+            <span id="val-mem-avail" class="metric-hero-val">-- MB</span>
+            <span id="val-mem-free-inline" class="metric-chip">Free -- MB</span>
+          </div>
         </div>
 
         <div class="metrics-grid">
-          <div class="metric-cell">
-            <span class="metric-label">Physical Free</span>
-            <span id="val-mem-free" class="metric-val">-- MB</span>
-          </div>
           <div class="metric-cell">
             <span class="metric-label">Swap Capacity</span>
             <span id="val-zram-total" class="metric-val">-- MB</span>
@@ -66,16 +65,12 @@
             <span id="val-zram-used" class="metric-val">-- MB</span>
           </div>
           <div class="metric-cell">
-            <span class="metric-label">ZRAM Stored (Comp)</span>
+            <span class="metric-label">Stored (Comp)</span>
             <span id="val-zram-phys" class="metric-val">-- MB</span>
           </div>
           <div class="metric-cell">
-            <span class="metric-label">Compression Ratio</span>
-            <span id="val-zram-ratio" class="metric-val">--</span>
-          </div>
-          <div class="metric-cell">
-            <span class="metric-label">Active Algorithm</span>
-            <span id="val-zram-algo" class="metric-val">--</span>
+            <span class="metric-label">Ratio &amp; Algo</span>
+            <span id="val-zram-ratio-algo" class="metric-val">--</span>
           </div>
         </div>
 
@@ -87,7 +82,7 @@
         <div class="progress-wrap">
           <div class="progress-label">
             <span>Swap utilization</span>
-            <span id="val-swap-pct">0%</span>
+            <span id="val-swap-pct">0% · Normal</span>
           </div>
           <div class="progress-bar" role="progressbar" aria-label="Swap utilization" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar-swap-track">
             <div id="bar-swap" class="progress-fill" style="width: 0%"></div>
@@ -95,78 +90,63 @@
         </div>
 
         <div class="card-actions">
-          <button type="button" id="btn-compact" class="btn">Compact ZRAM</button>
-          <button type="button" id="btn-reclaim" class="btn">Deep Reclaim</button>
-          <button type="button" id="btn-trim" class="btn">Trim Cached</button>
+          <button type="button" id="btn-compact" class="btn">Compact</button>
+          <button type="button" id="btn-reclaim" class="btn">Reclaim</button>
+          <button type="button" id="btn-trim" class="btn">Trim Apps</button>
         </div>
       </article>
 
       <article class="card">
         <div class="card-head">
           <h2 class="card-title">Power Protection</h2>
+          <span id="val-pwr-status-chip" class="status-badge">--</span>
         </div>
 
         <div class="metrics-grid">
           <div class="metric-cell">
-            <span class="metric-label">Charging State</span>
-            <span id="val-pwr-status" class="metric-val">--</span>
+            <span class="metric-label">Port &amp; Voltage</span>
+            <span id="val-pwr-port-volt" class="metric-val">--</span>
           </div>
           <div class="metric-cell">
-            <span class="metric-label">Port Type</span>
-            <span id="val-pwr-type" class="metric-val">--</span>
-          </div>
-          <div class="metric-cell">
-            <span class="metric-label">Current</span>
+            <span class="metric-label">Current Flow</span>
             <span id="val-pwr-current" class="metric-val">--</span>
-          </div>
-          <div class="metric-cell">
-            <span class="metric-label">Voltage</span>
-            <span id="val-pwr-voltage" class="metric-val">--</span>
           </div>
         </div>
 
         <div class="control-row">
           <div class="control-info">
             <label class="control-name" for="chk-bypass-master">Bypass charging</label>
-            <span class="control-desc" id="desc-bypass">Cuts battery charge path while keeping USB power active. State reflects live hardware node status.</span>
+            <span class="control-desc" id="desc-bypass">Cuts battery charge path immediately while keeping USB power live.</span>
           </div>
           <input type="checkbox" switch role="switch" id="chk-bypass-master" class="kairos-switch" aria-describedby="desc-bypass">
         </div>
 
-        <div class="control-row">
-          <div class="control-info">
-            <label class="control-name" for="chk-thermal-guard">Thermal guard</label>
-            <span class="control-desc" id="desc-thermal">Opt-in cutoff above 52°C battery temperature, resuming 3°C below limit.</span>
-          </div>
-          <input type="checkbox" switch role="switch" id="chk-thermal-guard" class="kairos-switch" aria-describedby="desc-thermal">
-        </div>
-
-        <div class="setting-group">
-          <span class="setting-label" id="lbl-charge-limit">Charge limit</span>
-          <span class="setting-hint">Halts charging at the chosen threshold and resumes 3% lower.</span>
-          <div class="option-pill-group" id="group-charge-limit" role="group" aria-labelledby="lbl-charge-limit">
-            <button type="button" class="pill-btn active" data-val="100">100%</button>
-            <button type="button" class="pill-btn" data-val="90">90%</button>
-            <button type="button" class="pill-btn" data-val="85">85%</button>
-            <button type="button" class="pill-btn" data-val="80">80%</button>
-          </div>
-        </div>
+        <button type="button" class="config-tile" data-open-dialog="dlg-power">
+          <span class="tile-main">
+            <span class="tile-title">Thermal Guard &amp; Charge Limit</span>
+            <span class="tile-sub" id="sum-power-policy">Thermal Off · Limit 100%</span>
+          </span>
+          <span class="tile-arrow" aria-hidden="true">Configure &rsaquo;</span>
+        </button>
       </article>
     </section>
 
-    <!-- Panel 2: Per-App Rules -->
+    <!-- Tab 2: Per-App Rules -->
     <section id="tab-apps" class="tab-pane" role="tabpanel" aria-labelledby="nav-apps" hidden>
       <article class="card">
         <div class="card-head">
           <h2 class="card-title">Per-app rules</h2>
-          <span id="val-app-counts" class="metric-chip">0 rules</span>
+          <span id="val-app-counts" class="status-badge">0 rules</span>
         </div>
         <p class="section-desc">
-          Game stops charging while the app is foregrounded. Heavy Swap deprioritizes inactive background instances for LMKD/ZRAM reclaim.
+          Game pauses charging while foregrounded. Swap moves inactive background apps to ZRAM/LMKD faster (IME protected).
         </p>
-        <div class="search-box">
-          <label class="visually-hidden" for="app-search">Filter installed packages</label>
-          <input type="search" id="app-search" placeholder="Filter package names..." autocomplete="off">
+        <div class="search-row">
+          <div class="search-box">
+            <label class="visually-hidden" for="app-search">Filter installed packages</label>
+            <input type="search" id="app-search" placeholder="Filter package names..." autocomplete="off">
+          </div>
+          <button type="button" id="btn-filter-active" class="btn btn-sm" aria-pressed="false">Active only</button>
         </div>
         <div id="app-list-container" class="app-list">
           <div class="empty-state">Scanning installed packages...</div>
@@ -177,122 +157,49 @@
       </article>
     </section>
 
-    <!-- Panel 3: Kernel & Swap Tunables -->
+    <!-- Tab 3: Modular Settings Tiles (Per-Item Fast Popups) -->
     <section id="tab-tunables" class="tab-pane" role="tabpanel" aria-labelledby="nav-tunables" hidden>
       <article class="card">
         <div class="card-head">
-          <h2 class="card-title">ZRAM &amp; VM Tuning</h2>
-        </div>
-
-        <div class="setting-group">
-          <span class="setting-label" id="lbl-comp-algo">Compression algorithm</span>
-          <span class="setting-hint">zstd gives higher density for 4 GB RAM; lz4 lowers CPU cost. Applied cleanly after reset.</span>
-          <div class="option-pill-group" id="group-comp-algo" role="group" aria-labelledby="lbl-comp-algo">
-            <button type="button" class="pill-btn active" data-val="zstd">zstd</button>
-            <button type="button" class="pill-btn" data-val="lz4">lz4</button>
-          </div>
-        </div>
-
-        <div class="setting-group">
-          <span class="setting-label" id="lbl-zram-size">ZRAM disk size</span>
-          <span class="setting-hint">Virtual compressed swap capacity persisted across reboot. Resizing resets active swap once.</span>
-          <div class="option-pill-group" id="group-zram-size" role="group" aria-labelledby="lbl-zram-size">
-            <button type="button" class="pill-btn" data-val="2048M">2.0 GB</button>
-            <button type="button" class="pill-btn active" data-val="3072M">3.0 GB</button>
-            <button type="button" class="pill-btn" data-val="4000M">4.0 GB</button>
-            <button type="button" class="pill-btn" data-val="4500M">4.5 GB</button>
-          </div>
-        </div>
-
-        <div class="control-row">
-          <div class="control-info">
-            <label class="control-name" for="chk-zram-wb">ZRAM Writeback (opt-in)</label>
-            <span class="control-desc" id="desc-zram-wb">Offloads cold idle pages to loop storage (/data/adb/kairos_writeback.img) if supported by kernel.</span>
-          </div>
-          <input type="checkbox" switch role="switch" id="chk-zram-wb" class="kairos-switch" aria-describedby="desc-zram-wb">
-        </div>
-
-        <div class="setting-group" id="group-wb-size-wrap">
-          <span class="setting-label" id="lbl-wb-size">Writeback backing size</span>
-          <span class="setting-hint">Loop file size on /data when writeback is enabled.</span>
-          <div class="option-pill-group" id="group-wb-size" role="group" aria-labelledby="lbl-wb-size">
-            <button type="button" class="pill-btn" data-val="512">512 MB</button>
-            <button type="button" class="pill-btn active" data-val="1024">1 GB</button>
-            <button type="button" class="pill-btn" data-val="2048">2 GB</button>
-          </div>
-        </div>
-
-        <div class="setting-group">
-          <span class="setting-label" id="lbl-swappiness">VM swappiness</span>
-          <span class="setting-hint">Reclaim balance between anonymous pages and file cache.</span>
-          <div class="option-pill-group" id="group-swappiness" role="group" aria-labelledby="lbl-swappiness">
-            <button type="button" class="pill-btn" data-val="60">60</button>
-            <button type="button" class="pill-btn active" data-val="100">100</button>
-            <button type="button" class="pill-btn" data-val="130">130</button>
-          </div>
-        </div>
-
-        <div class="setting-group">
-          <span class="setting-label" id="lbl-wm-scale">Watermark scale &amp; VFS pressure</span>
-          <span class="setting-hint">Background kswapd headroom without disabling Android PSI LMKD.</span>
-          <div class="split-controls">
-            <div class="option-pill-group" id="group-wm-scale" role="group" aria-label="Watermark scale factor">
-              <button type="button" class="pill-btn" data-val="10">WM 10</button>
-              <button type="button" class="pill-btn active" data-val="15">WM 15</button>
-              <button type="button" class="pill-btn" data-val="25">WM 25</button>
-            </div>
-            <div class="option-pill-group" id="group-vfs-pressure" role="group" aria-label="VFS cache pressure">
-              <button type="button" class="pill-btn" data-val="60">VFS 60</button>
-              <button type="button" class="pill-btn active" data-val="100">VFS 100</button>
-              <button type="button" class="pill-btn" data-val="130">VFS 130</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="setting-group">
-          <span class="setting-label" id="lbl-bg-limit">Cached app limit</span>
-          <span class="setting-hint">Synced to both system.prop and ActivityManager max_cached_processes.</span>
-          <div class="option-pill-group" id="group-bg-limit" role="group" aria-labelledby="lbl-bg-limit">
-            <button type="button" class="pill-btn" data-val="24">24</button>
-            <button type="button" class="pill-btn" data-val="32">32</button>
-            <button type="button" class="pill-btn active" data-val="48">48</button>
-            <button type="button" class="pill-btn" data-val="64">64</button>
-          </div>
-        </div>
-
-        <div class="card-actions">
-          <button type="button" id="btn-apply-tunables" class="btn btn-primary">Apply &amp; persist</button>
-        </div>
-      </article>
-
-      <article class="card">
-        <div class="card-head">
-          <h2 class="card-title">Display scale</h2>
+          <h2 class="card-title">System Tuning</h2>
+          <span class="metric-chip">Applies per item</span>
         </div>
         <p class="section-desc">
-          Scales render resolution and DPI proportionally to lower Adreno 610 fill-rate load and heat.
+          Tap a module below to adjust and apply its setting independently without restarting ZRAM swap.
         </p>
-        <div class="metrics-grid">
-          <div class="metric-cell">
-            <span class="metric-label">Resolution</span>
-            <span id="val-display-res" class="metric-val">--</span>
-          </div>
-          <div class="metric-cell">
-            <span class="metric-label">Density</span>
-            <span id="val-display-dpi" class="metric-val">--</span>
-          </div>
-        </div>
-        <div class="setting-group">
-          <span class="setting-label" id="lbl-display-scale">Scale factor</span>
-          <div class="option-pill-group" id="group-display-scale" role="group" aria-labelledby="lbl-display-scale">
-            <button type="button" class="pill-btn active" data-scale="1.0">100%</button>
-            <button type="button" class="pill-btn" data-scale="0.9">90%</button>
-            <button type="button" class="pill-btn" data-scale="0.85">85%</button>
-          </div>
-        </div>
-        <div class="card-actions">
-          <button type="button" id="btn-apply-display" class="btn btn-primary">Apply scale</button>
-          <button type="button" id="btn-reset-display" class="btn">Reset</button>
+
+        <div class="tile-stack">
+          <button type="button" class="config-tile" data-open-dialog="dlg-cache">
+            <span class="tile-main">
+              <span class="tile-title">App Cache &amp; LMKD</span>
+              <span class="tile-sub" id="sum-cache">Limit 32 cached apps · Instant apply</span>
+            </span>
+            <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
+          </button>
+
+          <button type="button" class="config-tile" data-open-dialog="dlg-vm">
+            <span class="tile-main">
+              <span class="tile-title">VM &amp; Reclaim</span>
+              <span class="tile-sub" id="sum-vm">Swap 100 · WM 15 · VFS 100 · Instant apply</span>
+            </span>
+            <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
+          </button>
+
+          <button type="button" class="config-tile" data-open-dialog="dlg-zram">
+            <span class="tile-main">
+              <span class="tile-title">ZRAM &amp; Writeback</span>
+              <span class="tile-sub" id="sum-zram">3.0 GB · zstd · Writeback Off</span>
+            </span>
+            <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
+          </button>
+
+          <button type="button" class="config-tile" data-open-dialog="dlg-display">
+            <span class="tile-main">
+              <span class="tile-title">Display Scale</span>
+              <span class="tile-sub" id="sum-display">--</span>
+            </span>
+            <span class="tile-arrow" aria-hidden="true">Edit &rsaquo;</span>
+          </button>
         </div>
       </article>
     </section>
@@ -305,7 +212,194 @@
   <nav class="nav-bar" aria-label="Primary" role="tablist">
     <button type="button" id="nav-telemetry" class="nav-btn active" role="tab" aria-selected="true" aria-controls="tab-telemetry" data-tab="telemetry">Status</button>
     <button type="button" id="nav-apps" class="nav-btn" role="tab" aria-selected="false" aria-controls="tab-apps" data-tab="apps">Apps</button>
-    <button type="button" id="nav-tunables" class="nav-btn" role="tab" aria-selected="false" aria-controls="tab-tunables" data-tab="tunables">Kernel</button>
+    <button type="button" id="nav-tunables" class="nav-btn" role="tab" aria-selected="false" aria-controls="tab-tunables" data-tab="tunables">Tuning</button>
   </nav>
+
+  <!-- Native Modal Dialogs (light-dismiss closedby="any", scroll containment, top-layer animated) -->
+  <dialog id="dlg-power" class="sheet-dialog" closedby="any" aria-labelledby="dlg-power-title">
+    <div class="dialog-head">
+      <h2 id="dlg-power-title" class="dialog-title">Power Policy</h2>
+      <button type="button" class="btn-icon" data-close-dialog aria-label="Close dialog" autofocus>&times;</button>
+    </div>
+    <div class="dialog-body">
+      <div class="control-row control-row-first">
+        <div class="control-info">
+          <label class="control-name" for="chk-thermal-guard">Thermal guard</label>
+          <span class="control-desc" id="desc-thermal">Halts charging at threshold and resumes 3°C cooler.</span>
+        </div>
+        <input type="checkbox" switch role="switch" id="chk-thermal-guard" class="kairos-switch" aria-describedby="desc-thermal">
+      </div>
+      <div class="setting-group" id="group-thermal-limit-wrap">
+        <span class="setting-label" id="lbl-thermal-limit">Thermal cutoff (°C)</span>
+        <div class="option-pill-group" id="group-thermal-limit" role="group" aria-labelledby="lbl-thermal-limit">
+          <button type="button" class="pill-btn" data-val="45">45°C</button>
+          <button type="button" class="pill-btn" data-val="48">48°C</button>
+          <button type="button" class="pill-btn active" data-val="52">52°C</button>
+          <button type="button" class="pill-btn" data-val="55">55°C</button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-charge-limit">Charge limit (%)</span>
+        <span class="setting-hint">Stops charging at target % and resumes 3% below.</span>
+        <div class="option-pill-group" id="group-charge-limit" role="group" aria-labelledby="lbl-charge-limit">
+          <button type="button" class="pill-btn active" data-val="100">100%</button>
+          <button type="button" class="pill-btn" data-val="90">90%</button>
+          <button type="button" class="pill-btn" data-val="85">85%</button>
+          <button type="button" class="pill-btn" data-val="80">80%</button>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn" data-close-dialog>Cancel</button>
+      <button type="button" id="btn-save-power" class="btn btn-primary">Save Power</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-cache" class="sheet-dialog" closedby="any" aria-labelledby="dlg-cache-title">
+    <div class="dialog-head">
+      <h2 id="dlg-cache-title" class="dialog-title">App Cache &amp; LMKD</h2>
+      <button type="button" class="btn-icon" data-close-dialog aria-label="Close dialog" autofocus>&times;</button>
+    </div>
+    <div class="dialog-body">
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-bg-limit">Cached process limit</span>
+        <span class="setting-hint">Applies only to ActivityManager &amp; ro.sys.fw.bg_apps_limit without touching ZRAM. Recommended 32 for 4 GB RAM so Gboard stays snappy.</span>
+        <div class="option-pill-group" id="group-bg-limit" role="group" aria-labelledby="lbl-bg-limit">
+          <button type="button" class="pill-btn" data-val="24">24</button>
+          <button type="button" class="pill-btn active" data-val="32">32</button>
+          <button type="button" class="pill-btn" data-val="48">48</button>
+          <button type="button" class="pill-btn" data-val="64">64</button>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn" data-close-dialog>Cancel</button>
+      <button type="button" id="btn-apply-cache" class="btn btn-primary">Apply Cache Limit</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-vm" class="sheet-dialog" closedby="any" aria-labelledby="dlg-vm-title">
+    <div class="dialog-head">
+      <h2 id="dlg-vm-title" class="dialog-title">VM &amp; Reclaim</h2>
+      <button type="button" class="btn-icon" data-close-dialog aria-label="Close dialog" autofocus>&times;</button>
+    </div>
+    <div class="dialog-body">
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-swappiness">VM swappiness</span>
+        <div class="option-pill-group" id="group-swappiness" role="group" aria-labelledby="lbl-swappiness">
+          <button type="button" class="pill-btn" data-val="60">60</button>
+          <button type="button" class="pill-btn active" data-val="100">100</button>
+          <button type="button" class="pill-btn" data-val="130">130</button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-wm-scale">Watermark scale</span>
+        <div class="option-pill-group" id="group-wm-scale" role="group" aria-labelledby="lbl-wm-scale">
+          <button type="button" class="pill-btn" data-val="10">WM 10</button>
+          <button type="button" class="pill-btn active" data-val="15">WM 15</button>
+          <button type="button" class="pill-btn" data-val="25">WM 25</button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-vfs-pressure">VFS cache pressure</span>
+        <div class="option-pill-group" id="group-vfs-pressure" role="group" aria-labelledby="lbl-vfs-pressure">
+          <button type="button" class="pill-btn" data-val="60">VFS 60</button>
+          <button type="button" class="pill-btn active" data-val="100">VFS 100</button>
+          <button type="button" class="pill-btn" data-val="130">VFS 130</button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-comp-proact">Compaction proactiveness</span>
+        <div class="option-pill-group" id="group-comp-proact" role="group" aria-labelledby="lbl-comp-proact">
+          <button type="button" class="pill-btn" data-val="0">0</button>
+          <button type="button" class="pill-btn active" data-val="20">20</button>
+          <button type="button" class="pill-btn" data-val="40">40</button>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn" data-close-dialog>Cancel</button>
+      <button type="button" id="btn-apply-vm" class="btn btn-primary">Apply VM Instant</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-zram" class="sheet-dialog" closedby="any" aria-labelledby="dlg-zram-title">
+    <div class="dialog-head">
+      <h2 id="dlg-zram-title" class="dialog-title">ZRAM &amp; Writeback</h2>
+      <button type="button" class="btn-icon" data-close-dialog aria-label="Close dialog" autofocus>&times;</button>
+    </div>
+    <div class="dialog-body">
+      <p class="notice-banner">
+        <strong>Note:</strong> Live ZRAM rebuild runs <code>swapoff</code> to change size, algorithm, or backing device. If swap is heavy right now, choose <strong>Save for Reboot</strong> instead.
+      </p>
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-comp-algo">Compression algorithm</span>
+        <div class="option-pill-group" id="group-comp-algo" role="group" aria-labelledby="lbl-comp-algo">
+          <button type="button" class="pill-btn active" data-val="zstd">zstd</button>
+          <button type="button" class="pill-btn" data-val="lz4">lz4</button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-zram-size">Disk size</span>
+        <div class="option-pill-group" id="group-zram-size" role="group" aria-labelledby="lbl-zram-size">
+          <button type="button" class="pill-btn" data-val="2048M">2.0 GB</button>
+          <button type="button" class="pill-btn active" data-val="3072M">3.0 GB</button>
+          <button type="button" class="pill-btn" data-val="4000M">4.0 GB</button>
+          <button type="button" class="pill-btn" data-val="4500M">4.5 GB</button>
+        </div>
+      </div>
+      <div class="control-row">
+        <div class="control-info">
+          <label class="control-name" for="chk-zram-wb">ZRAM Writeback</label>
+          <span class="control-desc" id="desc-zram-wb">Offloads cold idle pages to loop storage (/data/adb/kairos_writeback.img).</span>
+        </div>
+        <input type="checkbox" switch role="switch" id="chk-zram-wb" class="kairos-switch" aria-describedby="desc-zram-wb">
+      </div>
+      <div class="setting-group" id="group-wb-size-wrap">
+        <span class="setting-label" id="lbl-wb-size">Writeback backing size</span>
+        <div class="option-pill-group" id="group-wb-size" role="group" aria-labelledby="lbl-wb-size">
+          <button type="button" class="pill-btn" data-val="512">512 MB</button>
+          <button type="button" class="pill-btn active" data-val="1024">1 GB</button>
+          <button type="button" class="pill-btn" data-val="2048">2 GB</button>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" id="btn-save-zram-reboot" class="btn">Save for Reboot</button>
+      <button type="button" id="btn-apply-zram-live" class="btn btn-primary">Rebuild Live</button>
+    </div>
+  </dialog>
+
+  <dialog id="dlg-display" class="sheet-dialog" closedby="any" aria-labelledby="dlg-display-title">
+    <div class="dialog-head">
+      <h2 id="dlg-display-title" class="dialog-title">Display Scale</h2>
+      <button type="button" class="btn-icon" data-close-dialog aria-label="Close dialog" autofocus>&times;</button>
+    </div>
+    <div class="dialog-body">
+      <div class="metrics-grid">
+        <div class="metric-cell">
+          <span class="metric-label">Current Size</span>
+          <span id="val-display-res" class="metric-val">--</span>
+        </div>
+        <div class="metric-cell">
+          <span class="metric-label">Current Density</span>
+          <span id="val-display-dpi" class="metric-val">--</span>
+        </div>
+      </div>
+      <div class="setting-group">
+        <span class="setting-label" id="lbl-display-scale">Render scale factor</span>
+        <span class="setting-hint">Reduces Adreno 610 fill-rate load and heat proportionally.</span>
+        <div class="option-pill-group" id="group-display-scale" role="group" aria-labelledby="lbl-display-scale">
+          <button type="button" class="pill-btn active" data-scale="1.0">100%</button>
+          <button type="button" class="pill-btn" data-scale="0.9">90%</button>
+          <button type="button" class="pill-btn" data-scale="0.85">85%</button>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" id="btn-reset-display" class="btn">Reset 100%</button>
+      <button type="button" id="btn-apply-display" class="btn btn-primary">Apply Scale</button>
+    </div>
+  </dialog>
 </body>
 </html>

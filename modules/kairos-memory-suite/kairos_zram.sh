@@ -128,17 +128,21 @@ apply_vm_tunables() {
   fi
 }
 
-cmd_apply() {
+cmd_vm() {
+  swappiness=$(clamp_int "${1:-100}" 0 200 100)
+  vfs_pressure=$(clamp_int "${2:-100}" 10 200 100)
+  wm_scale=$(clamp_int "${3:-15}" 5 100 15)
+  comp_proact=$(clamp_int "${4:-20}" 0 100 20)
+
+  apply_vm_tunables "$swappiness" "$vfs_pressure" "$wm_scale" "$comp_proact"
+  echo "VM_OK swappiness=${swappiness} vfs=${vfs_pressure} wm=${wm_scale} comp=${comp_proact}"
+}
+
+cmd_zram() {
   zram_size="${1:-3072M}"
   want_algo="${2:-zstd}"
   want_wb=$(clamp_int "${3:-0}" 0 1 0)
   wb_mb=$(clamp_int "${4:-1024}" 256 4096 1024)
-  swappiness=$(clamp_int "${5:-100}" 0 200 100)
-  vfs_pressure=$(clamp_int "${6:-100}" 10 200 100)
-  wm_scale=$(clamp_int "${7:-15}" 5 100 15)
-  comp_proact=$(clamp_int "${8:-20}" 0 100 20)
-
-  apply_vm_tunables "$swappiness" "$vfs_pressure" "$wm_scale" "$comp_proact"
 
   if [ ! -e /dev/block/zram0 ] && [ -e /sys/class/zram-control/hot_add ]; then
     cat /sys/class/zram-control/hot_add >/dev/null 2>&1 || true
@@ -207,6 +211,11 @@ cmd_apply() {
   return 1
 }
 
+cmd_apply() {
+  cmd_vm "${5:-100}" "${6:-100}" "${7:-15}" "${8:-20}"
+  cmd_zram "${1:-3072M}" "${2:-zstd}" "${3:-0}" "${4:-1024}"
+}
+
 cmd_compact() {
   level="${1:-soft}"
   [ -e /sys/block/zram0/compact ] && echo 1 > /sys/block/zram0/compact 2>/dev/null || true
@@ -255,6 +264,8 @@ cmd_status() {
   printf 'VM_SWAPPINESS=%s\n' "$(cat /proc/sys/vm/swappiness 2>/dev/null)"
   printf 'VM_VFS_PRESSURE=%s\n' "$(cat /proc/sys/vm/vfs_cache_pressure 2>/dev/null)"
   printf 'VM_WM_SCALE=%s\n' "$(cat /proc/sys/vm/watermark_scale_factor 2>/dev/null)"
+  printf 'VM_COMP_PROACT=%s\n' "$(cat /proc/sys/vm/compaction_proactiveness 2>/dev/null)"
+  printf 'BG_LIMIT=%s\n' "$(getprop ro.sys.fw.bg_apps_limit 2>/dev/null)"
 
   printf 'PWR_TEMP=%s\n' "$(cat /sys/class/power_supply/battery/temp 2>/dev/null)"
   printf 'PWR_CURRENT=%s\n' "$(cat /sys/class/power_supply/battery/current_now 2>/dev/null)"
@@ -268,7 +279,9 @@ cmd_status() {
 
 case "$1" in
   apply) shift; cmd_apply "$@" ;;
+  vm) shift; cmd_vm "$@" ;;
+  zram) shift; cmd_zram "$@" ;;
   compact) shift; cmd_compact "$@" ;;
   status) cmd_status ;;
-  *) echo "Usage: $0 {apply|compact|status}"; exit 1 ;;
+  *) echo "Usage: $0 {apply|vm|zram|compact|status}"; exit 1 ;;
 esac

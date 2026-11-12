@@ -1,6 +1,0 @@
-# [AG] Hotspot & SoftAP Tethering Policy for Android 16 (Redmi 10C / fog)
-# Fixes Remote I/O error (code 121) caused by dnsmasq execution denial under netd domain
-allow netd dnsmasq_exec file { getattr open read execute execute_no_trans entrypoint }
-allow netd self capability { setgid setuid net_admin net_raw net_bind_service }
-allow netd self capability2 { wake_alarm block_suspend }
-permissive netd

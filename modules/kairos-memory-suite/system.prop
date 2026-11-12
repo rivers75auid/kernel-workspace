@@ -1,4 +1,4 @@
-ro.sys.fw.bg_apps_limit=64
+ro.sys.fw.bg_apps_limit=48
 ro.lmk.kill_heaviest_task=false
 ro.lmk.use_psi=true
 ro.lmk.use_minfree_levels=false

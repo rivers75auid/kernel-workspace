@@ -1,0 +1,16 @@
+{
+  "name": "Kairos x Scene9 Custom (Redmi 10C / fog / khaje)",
+  "version": "1.0-khaje",
+  "versionCode": 20261112,
+  "author": "Kairos Project (SM6225 khaje)",
+  "executor": "powercfg.sh",
+  "projectUrl": "https://github.com/rivers75auid/kernel_xiaomi_sm6225",
+  "state": "Ready (SM6225 SchedTune + WALT + Adreno 610)",
+  "features": {
+    "strict": true,
+    "pedestal": true,
+    "reboot": false,
+    "fas": false,
+    "limiter": false
+  }
+}

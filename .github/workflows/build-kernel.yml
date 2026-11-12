@@ -42,6 +42,11 @@ on:
         required: true
         type: boolean
         default: true
+      ENABLE_NOMOUNT:
+        description: 'Enable NoMount v2.2.0 Built-in VFS Redirection (CONFIG_NOMOUNT=y)'
+        required: true
+        type: boolean
+        default: true
   push:
     branches:
       - main
@@ -131,6 +136,14 @@ jobs:
             "${{ github.event.inputs.SUSFS_VERSION_TAG || 'v2.3.0' }}" \
             "${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}" \
             "${{ github.event.inputs.KSU_REF || '516d3e87fbc986ccefdde2c2765f1700612441a9' }}"
+
+      - name: Setup NoMount Integration
+        run: |
+          chmod +x "$GITHUB_WORKSPACE/scripts/setup-nomount.sh"
+          bash "$GITHUB_WORKSPACE/scripts/setup-nomount.sh" \
+            "${{ github.event.inputs.ENABLE_NOMOUNT || 'true' }}" \
+            "v2.2.0" \
+            "${{ github.event.inputs.DEFCONFIG || 'vendor/fog-perf_defconfig' }}"
 
       - name: Apply Custom Kernel Name & Potato Suite Optimizations
         run: |
@@ -282,13 +295,26 @@ jobs:
               --enable KSU_MANUAL_HOOK
           fi
 
+          ENABLE_NOMOUNT="${{ github.event.inputs.ENABLE_NOMOUNT || 'true' }}"
+          if [ "$ENABLE_NOMOUNT" = "true" ]; then
+            ./scripts/config --file out/.config --enable NOMOUNT
+          else
+            ./scripts/config --file out/.config --disable NOMOUNT
+          fi
+
           echo "===> Menyelesaikan NEW symbols non-interaktif dengan LLVM=1..."
           make -j$(nproc --all) "${MAKE_ARGS[@]}" olddefconfig
 
           echo "===> Verifikasi hasil konfigurasi kritis:"
-          grep -E "CONFIG_CC_IS_CLANG|CONFIG_LD_IS_LLD|CONFIG_LTO_CLANG|CONFIG_THINLTO|CONFIG_LTO_NONE|CONFIG_PSI|CONFIG_MEMCG|CONFIG_ANDROID_SIMPLE_LMK|CONFIG_LRU_GEN|CONFIG_ZRAM_DEF_COMP|CONFIG_ZRAM_WRITEBACK|CONFIG_UCLAMP_TASK|CONFIG_ENERGY_MODEL|CONFIG_SCHED_CASS|CONFIG_EROFS_FS|CONFIG_F2FS_FS_COMPRESSION|CONFIG_IOSCHED_BFQ|CONFIG_HZ_250|CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_ANDROID_PARANOID_NETWORK|CONFIG_RANDOMIZE_MODULE_REGION_FULL|CONFIG_KPROBES" out/.config || true
-          echo "===> Verifikasi KSU hook mode:"
-          grep -E "CONFIG_KSU" out/.config || true
+          grep -E "CONFIG_CC_IS_CLANG|CONFIG_LD_IS_LLD|CONFIG_LTO_CLANG|CONFIG_THINLTO|CONFIG_LTO_NONE|CONFIG_PSI|CONFIG_MEMCG|CONFIG_ANDROID_SIMPLE_LMK|CONFIG_LRU_GEN|CONFIG_ZRAM_DEF_COMP|CONFIG_ZRAM_WRITEBACK|CONFIG_UCLAMP_TASK|CONFIG_ENERGY_MODEL|CONFIG_SCHED_CASS|CONFIG_EROFS_FS|CONFIG_F2FS_FS_COMPRESSION|CONFIG_IOSCHED_BFQ|CONFIG_HZ_250|CONFIG_RD_LZ4|CONFIG_USERFAULTFD|CONFIG_CPU_FREQ_DEFAULT_GOV|CONFIG_DEFAULT_IOSCHED|CONFIG_DEFAULT_TCP_CONG|CONFIG_NET_ACT_BPF|CONFIG_ANDROID_PARANOID_NETWORK|CONFIG_RANDOMIZE_MODULE_REGION_FULL|CONFIG_KPROBES|CONFIG_NOMOUNT" out/.config || true
+          echo "===> Verifikasi KSU hook mode & NoMount:"
+          grep -E "CONFIG_KSU|CONFIG_NOMOUNT" out/.config || true
+          if [ "$ENABLE_SUS" = "true" ]; then
+            grep -q "^CONFIG_KSU_SUSFS=y$" out/.config || { echo "[-] ERROR: CONFIG_KSU_SUSFS=y missing!"; exit 1; }
+          fi
+          if [ "$ENABLE_NOMOUNT" = "true" ]; then
+            grep -q "^CONFIG_NOMOUNT=y$" out/.config || { echo "[-] ERROR: CONFIG_NOMOUNT=y missing!"; exit 1; }
+          fi
 
           echo "===> Mengompilasi Kernel (Image.gz & dtbo.img)..."
           make -j$(nproc --all) "${MAKE_ARGS[@]}" Image.gz dtbo.img
@@ -408,7 +434,7 @@ jobs:
           # Package Kairos RAM Management Magisk/KSU module
           echo "===> Packaging Kairos RAM Management Module..."
           cd "$GITHUB_WORKSPACE/modules/kairos-memory-suite"
-          zip -r9 "$GITHUB_WORKSPACE/output/Kairos-RAM-Management-v2.2.zip" ./*
+          zip -r9 "$GITHUB_WORKSPACE/output/Kairos-RAM-Management-v2.3.zip" ./*
 
       - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
@@ -492,7 +518,7 @@ jobs:
               fi
             fi
 
-            MODULE_ZIP="$GITHUB_WORKSPACE/output/Kairos-RAM-Management-v2.2.zip"
+            MODULE_ZIP="$GITHUB_WORKSPACE/output/Kairos-RAM-Management-v2.3.zip"
             if [ -f "$MODULE_ZIP" ]; then
               echo "===> Uploading Kairos RAM Management Module to Telegram..."
               curl -s -F "chat_id=${TELEGRAM_CHAT_ID}" \

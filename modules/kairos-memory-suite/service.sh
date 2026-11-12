@@ -1,17 +1,16 @@
 #!/system/bin/sh
-# Kairos RAM Management - Universal Background Service
+# Kairos Engine - Memory, ZRAM Writeback & Charging Supervisor
 MODDIR=${0%/*}
 
-# Wait until Android runtime is fully booted
 while [ "$(getprop sys.boot_completed)" != "1" ]; do
   sleep 1
 done
 
-# Wait for vendor post-boot scripts to finish
+# Give vendor post-boot setup time to finish before enforcing Kairos state
 sleep 3
 
 LOG="/data/adb/kairos_ram_management.log"
-echo "=== Kairos RAM Management Started: $(date) ===" > $LOG
+echo "=== Kairos Engine Started: $(date) ===" > "$LOG"
 
 CONFIG="/data/adb/kairos_config.json"
 if [ ! -f "$CONFIG" ]; then
@@ -21,8 +20,14 @@ if [ ! -f "$CONFIG" ]; then
   "auto_bypass_games": [],
   "heavy_swap_apps": [],
   "swappiness": 100,
-  "zram_size": "4000M",
-  "bg_limit": 32,
+  "comp_algorithm": "zstd",
+  "zram_size": "3072M",
+  "zram_writeback": false,
+  "wb_size_mb": 1024,
+  "watermark_scale": 15,
+  "vfs_cache_pressure": 100,
+  "compaction_proactiveness": 20,
+  "bg_limit": 48,
   "thermal_guard": false,
   "thermal_limit_c": 52,
   "charge_limit": 100
@@ -31,59 +36,87 @@ EOF
   chmod 644 "$CONFIG"
 fi
 
-cfg_num() {
-  tr -d '\n' < "$CONFIG" | sed -n "s/.*\"$1\": *\"\{0,1\}\([0-9]\{1,5\}M\{0,1\}\)\"\{0,1\}.*/\1/p"
+cfg_val() {
+  awk -v key="\"$1\"" '
+    {
+      gsub(/[\r\n]/, " ")
+      line = line $0
+    }
+    END {
+      if (match(line, key "[[:space:]]*:[[:space:]]*\"?[^,}\\]]+\"?")) {
+        s = substr(line, RSTART, RLENGTH)
+        sub(/^[^:]*:[[:space:]]*/, "", s)
+        gsub(/^"|"$/, "", s)
+        gsub(/[[:space:]]+$/, "", s)
+        print s
+      }
+    }
+  ' "$CONFIG" 2>/dev/null
 }
-SWAPPINESS=$(cfg_num swappiness); [ -z "$SWAPPINESS" ] && SWAPPINESS=100
-BG_LIMIT=$(cfg_num bg_limit); [ -z "$BG_LIMIT" ] && BG_LIMIT=32
-ZRAM_SIZE=$(cfg_num zram_size)
 
-# 1. LMKD thresholds live in system.prop: lmkd reads ro.lmk.* once at start,
-#    so resetprop here would only change getprop output, not lmkd behavior.
+cfg_bool() {
+  v=$(cfg_val "$1")
+  [ "$v" = "true" ] && echo 1 || echo 0
+}
+
+SWAPPINESS=$(cfg_val swappiness); [ -z "$SWAPPINESS" ] && SWAPPINESS=100
+COMP_ALGO=$(cfg_val comp_algorithm); [ -z "$COMP_ALGO" ] && COMP_ALGO="zstd"
+ZRAM_SIZE=$(cfg_val zram_size); [ -z "$ZRAM_SIZE" ] && ZRAM_SIZE="3072M"
+ZRAM_WB=$(cfg_bool zram_writeback)
+WB_SIZE=$(cfg_val wb_size_mb); [ -z "$WB_SIZE" ] && WB_SIZE=1024
+WM_SCALE=$(cfg_val watermark_scale); [ -z "$WM_SCALE" ] && WM_SCALE=15
+VFS_PRESSURE=$(cfg_val vfs_cache_pressure); [ -z "$VFS_PRESSURE" ] && VFS_PRESSURE=100
+COMP_PROACT=$(cfg_val compaction_proactiveness); [ -z "$COMP_PROACT" ] && COMP_PROACT=20
+BG_LIMIT=$(cfg_val bg_limit); [ -z "$BG_LIMIT" ] && BG_LIMIT=48
+
+# 1. Align ActivityManager & LMKD (keep PSI active; disable competing legacy minfree/phantom kills)
 resetprop ro.sys.fw.bg_apps_limit "$BG_LIMIT"
-
-# 2. Activity Manager & Phantom Process Killer Mitigation
-device_config put activity_manager max_cached_processes "$BG_LIMIT" 2>/dev/null
-device_config put activity_manager max_phantom_processes 32 2>/dev/null
-device_config put activity_manager use_compaction false 2>/dev/null
-device_config put activity_manager proactive_kills_enabled false 2>/dev/null
+if command -v device_config >/dev/null 2>&1; then
+  device_config put activity_manager max_cached_processes "$BG_LIMIT" 2>/dev/null
+  device_config put activity_manager max_phantom_processes 64 2>/dev/null
+  device_config put activity_manager use_compaction false 2>/dev/null
+  device_config put activity_manager proactive_kills_enabled false 2>/dev/null
+  device_config put activity_manager no_kill_cached_processes_post_boot_completed_duration_millis 2147483647 2>/dev/null
+  if [ "$(getprop ro.lmk.use_psi)" = "true" ]; then
+    device_config put lmkd_native use_minfree_levels false 2>/dev/null
+  fi
+fi
 settings put global settings_enable_monitor_phantom_procs false 2>/dev/null
 
-# 3. Kernel VM Tunables Enforcement (Lock against ROM scripts)
-chmod 666 /proc/sys/vm/swappiness 2>/dev/null
-echo "$SWAPPINESS" > /proc/sys/vm/swappiness
-chmod 444 /proc/sys/vm/swappiness 2>/dev/null
+# 2. Disable conflicting vendor reclaimers (Scene-adapted, MGLRU/PSI friendly)
+[ -e /sys/module/process_reclaim/parameters/enable_process_reclaim ] && echo 0 > /sys/module/process_reclaim/parameters/enable_process_reclaim 2>/dev/null
+[ -e /sys/kernel/mi_reclaim/enable ] && echo 0 > /sys/kernel/mi_reclaim/enable 2>/dev/null
+[ -e /sys/kernel/mi_reclaim/greclaim_enable ] && echo 0 > /sys/kernel/mi_reclaim/greclaim_enable 2>/dev/null
+[ -e /sys/kernel/low_free/low_free_enable ] && echo 0 > /sys/kernel/low_free/low_free_enable 2>/dev/null
+[ -e /sys/kernel/mm/transparent_hugepage/enabled ] && echo never > /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null
+[ -e /sys/kernel/mm/transparent_hugepage/defrag ] && echo never > /sys/kernel/mm/transparent_hugepage/defrag 2>/dev/null
 
-chmod 666 /proc/sys/vm/watermark_scale_factor 2>/dev/null
-echo 10 > /proc/sys/vm/watermark_scale_factor
-chmod 444 /proc/sys/vm/watermark_scale_factor 2>/dev/null
+# 3. Apply persisted ZRAM (size, algorithm, optional writeback) & VM tunables at boot
+ZRES=$(sh "$MODDIR/kairos_zram.sh" apply "$ZRAM_SIZE" "$COMP_ALGO" "$ZRAM_WB" "$WB_SIZE" "$SWAPPINESS" "$VFS_PRESSURE" "$WM_SCALE" "$COMP_PROACT" 2>&1)
+echo "Boot ZRAM apply: $ZRES" >> "$LOG"
 
-echo 0 > /proc/sys/vm/watermark_boost_factor 2>/dev/null
-echo 0 > /proc/sys/vm/page-cluster 2>/dev/null
-echo 100 > /proc/sys/vm/vfs_cache_pressure 2>/dev/null
-echo 1 > /proc/sys/vm/compact_unevictable_allowed 2>/dev/null
-echo 5 > /proc/sys/vm/dirty_background_ratio 2>/dev/null
-echo 10 > /proc/sys/vm/dirty_ratio 2>/dev/null
-echo 0 > /proc/sys/vm/panic_on_oom 2>/dev/null
+# 4. Keep kswapd/kcompactd responsive on foreground cpuset (avoid getting starved on idle cores)
+for kproc in kswapd0 kcompactd0; do
+  kpid=$(pgrep -x "$kproc" 2>/dev/null | head -1)
+  if [ -n "$kpid" ] && [ -d /dev/cpuset/foreground ]; then
+    echo "$kpid" > /dev/cpuset/foreground/cgroup.procs 2>/dev/null
+  fi
+done
 
-# 4. CPU Schedutil Smoothing & Headroom
+# 5. CPU Schedutil Smoothing & Headroom
 for pol in /sys/devices/system/cpu/cpufreq/policy*; do
   if [ -d "$pol/schedutil" ]; then
     echo 20000 > "$pol/schedutil/down_rate_limit_us" 2>/dev/null
   fi
 done
-
 if [ -d /dev/stune/top-app ]; then
   echo 5 > /dev/stune/top-app/schedtune.boost 2>/dev/null
   echo 1 > /dev/stune/top-app/schedtune.prefer_idle 2>/dev/null
 fi
 
-# 5. Parameters applied
-echo "=== Kairos RAM Management Applied Successfully ===" >> $LOG
+echo "=== Kairos Engine Boot Setup Completed ===" >> "$LOG"
 
-# 6. Kairos Dynamic Background Policy Daemon
-
-# Charging control node: smblite exposes no charging_enabled; fall back to input_suspend
+# 6. Charging control node detection
 CHARGE_NODE=""
 CH_ON=1
 CH_OFF=0
@@ -91,27 +124,19 @@ if [ -e /sys/class/power_supply/battery/charging_enabled ]; then
   CHARGE_NODE="/sys/class/power_supply/battery/charging_enabled"
 elif [ -e /sys/class/power_supply/battery/input_suspend ]; then
   CHARGE_NODE="/sys/class/power_supply/battery/input_suspend"
-  CH_ON=0   # input_suspend semantics are inverted: 0 = charging allowed
+  CH_ON=0
   CH_OFF=1
 fi
 
-# [AG] Hotspot & SoftAP Tethering Safeguard (Android 16 SELinux & netd/dnsmasq)
-if command -v ksud >/dev/null 2>&1; then
-  ksud sepolicy apply - << 'EOF' 2>/dev/null
-allow netd dnsmasq_exec file { getattr open read execute execute_no_trans entrypoint }
-allow netd self capability { setgid setuid net_admin net_raw net_bind_service }
-allow netd self capability2 { wake_alarm block_suspend }
-permissive netd
-EOF
-fi
-
-# Background supervisor loop
+# Dynamic supervisor loop (Thermal guard, charge limit, game bypass & heavy_swap enforcement)
 (
   thermal_cut=0
   cap_cut=0
+  tick=0
 
   while true; do
     sleep 4
+    tick=$((tick + 1))
 
     [ -f "$CONFIG" ] || continue
 
@@ -122,7 +147,7 @@ fi
     [ -z "$batt_cap" ] && batt_cap=0
     ac_status=$(cat /sys/class/power_supply/battery/status 2>/dev/null)
 
-    # 1. Thermal Guard (opt-in: cut at limit, resume 3°C below)
+    # Thermal Guard
     thermal_guard=0
     printf '%s' "$config_flat" | grep -q '"thermal_guard": *true' && thermal_guard=1
     thermal_limit_c=$(printf '%s' "$config_flat" | sed -n 's/.*"thermal_limit_c": *\([0-9]\{1,3\}\).*/\1/p')
@@ -138,10 +163,9 @@ fi
       thermal_cut=0
     fi
 
-    # 2. Battery Charge Limit Cut-off (e.g. 80%, 85%, 90%)
+    # Charge Limit
     charge_limit=$(printf '%s' "$config_flat" | sed -n 's/.*"charge_limit": *\([0-9]\{1,3\}\).*/\1/p')
     [ -z "$charge_limit" ] && charge_limit=100
-
     if [ "$charge_limit" -lt 100 ]; then
       if [ "$batt_cap" -ge "$charge_limit" ]; then
         cap_cut=1
@@ -152,20 +176,48 @@ fi
       cap_cut=0
     fi
 
-    # 3. Game Mode: only matters while plugged in, so skip the costly dumpsys on battery
-    is_game=0
     games_block=$(printf '%s' "$config_flat" | sed -n 's/.*"auto_bypass_games": *\[\([^]]*\)\].*/\1/p')
+    swap_block=$(printf '%s' "$config_flat" | sed -n 's/.*"heavy_swap_apps": *\[\([^]]*\)\].*/\1/p')
+
+    curr_pkg=""
+    need_fg=0
     if [ -n "$games_block" ] && [ -n "$ac_status" ] && [ "$ac_status" != "Discharging" ]; then
+      need_fg=1
+    elif [ -n "$swap_block" ] && [ $((tick % 5)) -eq 0 ]; then
+      # Only enforce heavy_swap_apps every ~20s to avoid polling overhead
+      need_fg=1
+    fi
+
+    if [ "$need_fg" -eq 1 ]; then
       curr_pkg=$(dumpsys window 2>/dev/null | grep -m 1 "mFocusedApp" | grep -o "u0 [^/]*" | cut -d" " -f2)
-      if [ -n "$curr_pkg" ] && printf '%s\n' "$games_block" | grep -q "\"$curr_pkg\""; then
-        is_game=1
-      fi
+    fi
+
+    # Game Mode Bypass
+    is_game=0
+    if [ -n "$games_block" ] && [ -n "$curr_pkg" ] && printf '%s\n' "$games_block" | grep -q "\"$curr_pkg\""; then
+      is_game=1
+    fi
+
+    # Real Heavy Swap Enforcement (only when app is NOT foreground; safe OOM/swappiness deprioritization)
+    if [ -n "$swap_block" ] && [ $((tick % 5)) -eq 0 ]; then
+      printf '%s' "$swap_block" | tr ',' '\n' | tr -d ' "' | while IFS= read -r spkg; do
+        [ -n "$spkg" ] || continue
+        [ "$spkg" = "$curr_pkg" ] && continue
+        for pid in $(pidof "$spkg" 2>/dev/null); do
+          if [ -w "/proc/$pid/oom_score_adj" ]; then
+            cur_oom=$(cat "/proc/$pid/oom_score_adj" 2>/dev/null)
+            # Nudge cached background heavy apps gently toward swap/LMKD pruning without killing foreground services (<= 200)
+            if [ -n "$cur_oom" ] && [ "$cur_oom" -gt 200 ] && [ "$cur_oom" -lt 900 ]; then
+              echo 900 > "/proc/$pid/oom_score_adj" 2>/dev/null
+            fi
+          fi
+        done
+      done
     fi
 
     manual_bypass=0
     printf '%s' "$config_flat" | grep -q '"bypass_charging": *true' && manual_bypass=1
 
-    # 4. Desired charging state, compare-and-set every tick (never a latched flag)
     should_bypass=0
     if [ "$thermal_cut" -eq 1 ] || [ "$cap_cut" -eq 1 ] || [ "$manual_bypass" -eq 1 ]; then
       should_bypass=1
@@ -185,4 +237,3 @@ fi
     fi
   done
 ) </dev/null >/dev/null 2>&1 &
-

@@ -1,7 +1,7 @@
 id=kairos_memory_suite
 name=Kairos Engine
-version=v2.2
-versionCode=220
+version=v2.3
+versionCode=230
 author=Kairos
-description=Companion module with WebUI. Optional, safe to disable.
+description=Companion memory, ZRAM writeback & charging companion with WebUI (Android 13-16 PSI & MGLRU safe).
 web=true

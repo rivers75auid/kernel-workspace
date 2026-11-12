@@ -1,15 +1,17 @@
 // Kairos Engine WebUI Client Controller
-// Minimal, offline, anti-slop implementation.
+// Single bridge helper + shared kairos_zram.sh CLI integration.
 
 const CONFIG_PATH = "/data/adb/kairos_config.json";
+const ZRAM_HELPER =
+  "[ -x /data/adb/modules_update/kairos_memory_suite/kairos_zram.sh ] " +
+  "&& echo /data/adb/modules_update/kairos_memory_suite/kairos_zram.sh " +
+  "|| echo /data/adb/modules/kairos_memory_suite/kairos_zram.sh";
 
-// Safe Root Bridge
 function hasBridge() {
   return !!(window.ksu && window.ksu.exec);
 }
 
-// A command that never calls back must not freeze init or the poller.
-function exec(cmd, timeoutMs = 8000) {
+function exec(cmd, timeoutMs = 12000) {
   return new Promise((resolve) => {
     if (!hasBridge()) {
       resolve({ errno: -1, stdout: "", stderr: "No KernelSU bridge detected" });
@@ -18,7 +20,7 @@ function exec(cmd, timeoutMs = 8000) {
     const cb = "cb_" + Math.random().toString(36).slice(2);
     const timer = setTimeout(() => {
       window[cb] = () => delete window[cb];
-      resolve({ errno: -2, stdout: "", stderr: "timed out" });
+      resolve({ errno: -2, stdout: "", stderr: "Command timed out" });
     }, timeoutMs);
     window[cb] = (errno, stdout, stderr) => {
       clearTimeout(timer);
@@ -35,19 +37,29 @@ function exec(cmd, timeoutMs = 8000) {
   });
 }
 
-// State
-let appState = {
+async function execHelper(subcmd) {
+  return exec(`HELPER=$(${ZRAM_HELPER}); sh "$HELPER" ${subcmd}`, 20000);
+}
+
+const appState = {
   config: {
     bypass_charging: false,
     auto_bypass_games: [],
     heavy_swap_apps: [],
     swappiness: 100,
-    zram_size: "4000M",
-    bg_limit: 32,
+    comp_algorithm: "zstd",
+    zram_size: "3072M",
+    zram_writeback: false,
+    wb_size_mb: 1024,
+    watermark_scale: 15,
+    vfs_cache_pressure: 100,
+    compaction_proactiveness: 20,
+    bg_limit: 48,
     thermal_guard: false,
     thermal_limit_c: 52,
     charge_limit: 100
   },
+  wbSupported: false,
   display: {
     physWidth: 720,
     physHeight: 1650,
@@ -57,33 +69,36 @@ let appState = {
     currDpi: 268,
     selectedScale: 1.0
   },
-  installedPackages: [],
-  filteredPackages: []
+  installedPackages: []
 };
 
-// UI Elements
 const el = {
   tabBtns: document.querySelectorAll(".nav-btn"),
   tabPanes: document.querySelectorAll(".tab-pane"),
+  badgeKernelMode: document.getElementById("badge-kernel-mode"),
   headerTemp: document.getElementById("header-temp"),
   headerCharge: document.getElementById("header-charge"),
   headerBatt: document.getElementById("header-batt"),
   footerLog: document.getElementById("footer-log"),
 
-  // Telemetry
   memFree: document.getElementById("val-mem-free"),
   memAvail: document.getElementById("val-mem-avail"),
+  psiMem: document.getElementById("val-psi-mem"),
   zramUsed: document.getElementById("val-zram-used"),
   zramPhys: document.getElementById("val-zram-phys"),
   zramRatio: document.getElementById("val-zram-ratio"),
+  zramAlgo: document.getElementById("val-zram-algo"),
   zramTotal: document.getElementById("val-zram-total"),
+  rowWbStat: document.getElementById("row-wb-stat"),
+  valWbStat: document.getElementById("val-wb-stat"),
   swapPct: document.getElementById("val-swap-pct"),
   barSwap: document.getElementById("bar-swap"),
+  barSwapTrack: document.getElementById("bar-swap-track"),
   btnRefresh: document.getElementById("btn-refresh"),
   btnCompact: document.getElementById("btn-compact"),
+  btnReclaim: document.getElementById("btn-reclaim"),
   btnTrim: document.getElementById("btn-trim"),
 
-  // Power
   pwrStatus: document.getElementById("val-pwr-status"),
   pwrType: document.getElementById("val-pwr-type"),
   pwrCurrent: document.getElementById("val-pwr-current"),
@@ -92,18 +107,22 @@ const el = {
   chkThermalGuard: document.getElementById("chk-thermal-guard"),
   groupChargeLimit: document.getElementById("group-charge-limit"),
 
-  // Apps
   appSearch: document.getElementById("app-search"),
+  appCounts: document.getElementById("val-app-counts"),
   appListContainer: document.getElementById("app-list-container"),
   btnSaveApps: document.getElementById("btn-save-apps"),
 
-  // Tunables
-  groupSwappiness: document.getElementById("group-swappiness"),
+  groupCompAlgo: document.getElementById("group-comp-algo"),
   groupZramSize: document.getElementById("group-zram-size"),
+  chkZramWb: document.getElementById("chk-zram-wb"),
+  groupWbSizeWrap: document.getElementById("group-wb-size-wrap"),
+  groupWbSize: document.getElementById("group-wb-size"),
+  groupSwappiness: document.getElementById("group-swappiness"),
+  groupWmScale: document.getElementById("group-wm-scale"),
+  groupVfsPressure: document.getElementById("group-vfs-pressure"),
   groupBgLimit: document.getElementById("group-bg-limit"),
   btnApplyTunables: document.getElementById("btn-apply-tunables"),
 
-  // Display
   valDisplayRes: document.getElementById("val-display-res"),
   valDisplayDpi: document.getElementById("val-display-dpi"),
   groupDisplayScale: document.getElementById("group-display-scale"),
@@ -115,117 +134,149 @@ function log(msg) {
   if (el.footerLog) el.footerLog.textContent = msg;
 }
 
-// Navigation Router
+async function withBusyButton(btn, pendingText, fn) {
+  if (!btn) return fn();
+  const prev = btn.textContent;
+  btn.disabled = true;
+  if (pendingText) btn.textContent = pendingText;
+  try {
+    return await fn();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prev;
+  }
+}
+
+// Navigation Router (accessible tablist + hidden panels)
 el.tabBtns.forEach((btn) => {
   btn.addEventListener("click", () => {
     const tabId = btn.getAttribute("data-tab");
-    el.tabBtns.forEach((b) => b.classList.remove("active"));
-    el.tabPanes.forEach((p) => p.classList.remove("active"));
-    btn.classList.add("active");
-    const target = document.getElementById("tab-" + tabId);
-    if (target) target.classList.add("active");
-
+    el.tabBtns.forEach((b) => {
+      const isSelected = b === btn;
+      b.classList.toggle("active", isSelected);
+      b.setAttribute("aria-selected", isSelected ? "true" : "false");
+    });
+    el.tabPanes.forEach((p) => {
+      const show = p.id === "tab-" + tabId;
+      p.classList.toggle("active", show);
+      p.hidden = !show;
+    });
     if (tabId === "apps" && appState.installedPackages.length === 0) {
       loadPackages();
     }
   });
 });
 
+function parseKV(stdout) {
+  const map = {};
+  (stdout || "").split("\n").forEach((line) => {
+    const idx = line.indexOf("=");
+    if (idx > 0) {
+      map[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+    }
+  });
+  return map;
+}
+
+function escapeAttr(str) {
+  return String(str).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 // Telemetry Poller
 async function fetchTelemetry() {
-  const cmd = `
-    cat /proc/meminfo | grep -E "MemFree|MemAvailable|SwapTotal|SwapFree";
-    echo "---";
-    cat /sys/block/zram0/mm_stat 2>/dev/null;
-    echo "---";
-    cat /sys/class/power_supply/battery/temp 2>/dev/null;
-    cat /sys/class/power_supply/battery/current_now 2>/dev/null;
-    cat /sys/class/power_supply/battery/voltage_now 2>/dev/null;
-    cat /sys/class/power_supply/battery/status 2>/dev/null;
-    cat /sys/class/power_supply/usb/real_type 2>/dev/null;
-    echo "CE=$(cat /sys/class/power_supply/battery/charging_enabled 2>/dev/null)";
-    echo "IS=$(cat /sys/class/power_supply/battery/input_suspend 2>/dev/null)";
-    echo "CAP=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null)";
-  `;
-  const res = await exec(cmd);
+  const res = await execHelper("status");
   if (res.errno !== 0) {
-    log("Telemetry fetch failed: " + res.stderr);
+    log("Telemetry fetch failed: " + (res.stderr || `errno ${res.errno}`));
     return;
   }
 
-  const sections = res.stdout.split("---");
-  if (sections.length < 3) return;
+  const kv = parseKV(res.stdout);
+  const memFreeMb = Math.round((parseInt(kv.MEM_MEMFREE, 10) || 0) / 1024);
+  const memAvailMb = Math.round((parseInt(kv.MEM_MEMAVAILABLE, 10) || 0) / 1024);
+  const swapTotalMb = Math.round((parseInt(kv.MEM_SWAPTOTAL, 10) || 0) / 1024);
 
-  // 1. Memory info
-  const memLines = sections[0].trim().split("\n");
-  const memData = {};
-  memLines.forEach((l) => {
-    const p = l.split(":");
-    if (p.length === 2) memData[p[0].trim()] = parseInt(p[1].trim());
-  });
-
-  const memFreeMb = Math.round((memData["MemFree"] || 0) / 1024);
-  const memAvailMb = Math.round((memData["MemAvailable"] || 0) / 1024);
-  const swapTotalMb = Math.round((memData["SwapTotal"] || 0) / 1024);
-  const swapFreeMb = Math.round((memData["SwapFree"] || 0) / 1024);
-
-  // 2. mm_stat
-  const mmTokens = sections[1].trim().split(/\s+/);
+  const mmTokens = (kv.MM_STAT || "").split(/\s+/).filter(Boolean);
   let origSizeMb = 0;
   let compSizeMb = 0;
-  let ratio = 1.0;
-
-  if (mmTokens.length >= 3) {
-    const origBytes = parseInt(mmTokens[0]) || 0;
-    const compBytes = parseInt(mmTokens[1]) || 0;
+  let ratio = "1.00";
+  if (mmTokens.length >= 2) {
+    const origBytes = parseInt(mmTokens[0], 10) || 0;
+    const compBytes = parseInt(mmTokens[1], 10) || 0;
     origSizeMb = Math.round(origBytes / 1048576);
     compSizeMb = Math.round(compBytes / 1048576);
-    ratio = compBytes > 0 ? (origBytes / compBytes).toFixed(2) : "1.0";
+    ratio = compBytes > 0 ? (origBytes / compBytes).toFixed(2) : "1.00";
   }
 
-  // 3. Power
-  const pwrLines = sections[2].trim().split("\n");
-  const tempRaw = parseInt(pwrLines[0]) || 0;
-  const currRaw = parseInt(pwrLines[1]) || 0;
-  const voltRaw = parseInt(pwrLines[2]) || 0;
-  const statusStr = (pwrLines[3] || "Unknown").trim();
-  const typeStr = (pwrLines[4] || "USB").trim();
-  const ceVal = (pwrLines.find(l => l.startsWith("CE=")) || "").slice(3).trim();
-  const isVal = (pwrLines.find(l => l.startsWith("IS=")) || "").slice(3).trim();
-  const capVal = (pwrLines.find(l => l.startsWith("CAP=")) || "").slice(4).trim();
-  let chargeEnabled = true;
-  let chargeNodeSupported = true;
-  if (ceVal !== "") chargeEnabled = ceVal === "1";
-  else if (isVal !== "") chargeEnabled = isVal === "0"; // input_suspend is inverted
-  else chargeNodeSupported = false;
+  const mglruOn = kv.MGLRU && kv.MGLRU !== "0x0000" && kv.MGLRU !== "0";
+  if (el.badgeKernelMode) {
+    el.badgeKernelMode.textContent = mglruOn ? "PSI + MGLRU" : "PSI LMKD";
+  }
 
-  const tempC = (tempRaw / 10).toFixed(1);
-  const currentMa = Math.abs(Math.round(currRaw / 1000));
-  const voltageV = (voltRaw / 1000000).toFixed(2);
-  const watt = ((currentMa * parseFloat(voltageV)) / 1000).toFixed(1);
+  const psiMatch = (kv.PSI_MEM || "").match(/avg10=([\d.]+)/);
+  if (el.psiMem) {
+    el.psiMem.textContent = psiMatch ? `PSI avg10 ${psiMatch[1]}%` : "PSI N/A";
+  }
 
-  // Render Telemetry
   el.memFree.textContent = memFreeMb + " MB";
   el.memAvail.textContent = memAvailMb + " MB";
   el.zramUsed.textContent = origSizeMb + " MB";
   el.zramPhys.textContent = compSizeMb + " MB";
   el.zramRatio.textContent = ratio + " x";
   el.zramTotal.textContent = swapTotalMb + " MB";
+  if (el.zramAlgo) el.zramAlgo.textContent = kv.COMP_ALGO || "unknown";
+
+  appState.wbSupported = kv.WB_SUPPORTED === "1";
+  const bdNode = kv.BACKING_DEV || "none";
+  if (el.chkZramWb) {
+    el.chkZramWb.disabled = !appState.wbSupported;
+    if (!appState.wbSupported) el.chkZramWb.title = "CONFIG_ZRAM_WRITEBACK unavailable";
+  }
+  if (el.rowWbStat) {
+    if (bdNode && bdNode !== "none") {
+      el.rowWbStat.hidden = false;
+      const bdParts = (kv.BD_STAT || "").split(/\s+/).filter(Boolean);
+      const writtenKb = (parseInt(bdParts[2], 10) || 0) * 4;
+      const writtenMb = (writtenKb / 1024).toFixed(1);
+      el.valWbStat.textContent = `${bdNode} (${writtenMb} MB out)`;
+    } else {
+      el.rowWbStat.hidden = true;
+    }
+  }
 
   const swapPct = swapTotalMb > 0 ? Math.round((origSizeMb / swapTotalMb) * 100) : 0;
   const boundedPct = Math.min(100, Math.max(0, swapPct));
   el.swapPct.textContent = boundedPct + "%";
   el.barSwap.style.width = boundedPct + "%";
+  if (el.barSwapTrack) el.barSwapTrack.setAttribute("aria-valuenow", String(boundedPct));
   if (boundedPct > 85) {
     el.barSwap.style.backgroundColor = "var(--status-err)";
   } else if (boundedPct > 65) {
     el.barSwap.style.backgroundColor = "var(--status-warn)";
   } else {
-    el.barSwap.style.backgroundColor = "var(--accent-blue)";
+    el.barSwap.style.backgroundColor = "var(--accent)";
   }
 
-  // Render Power
-  // Checkbox shows the user's manual choice; State shows what the node is actually doing.
+  // Power
+  const tempRaw = parseInt(kv.PWR_TEMP, 10) || 0;
+  const currRaw = parseInt(kv.PWR_CURRENT, 10) || 0;
+  const voltRaw = parseInt(kv.PWR_VOLTAGE, 10) || 0;
+  const statusStr = kv.PWR_STATUS || "Unknown";
+  const typeStr = kv.PWR_TYPE || "USB";
+  const ceVal = kv.PWR_CE || "";
+  const isVal = kv.PWR_IS || "";
+  const capVal = kv.PWR_CAP || "";
+
+  let chargeEnabled = true;
+  let chargeNodeSupported = true;
+  if (ceVal !== "") chargeEnabled = ceVal === "1";
+  else if (isVal !== "") chargeEnabled = isVal === "0";
+  else chargeNodeSupported = false;
+
+  const tempC = (tempRaw / 10).toFixed(1);
+  const currentMa = Math.abs(Math.round(currRaw / 1000));
+  const voltageV = (voltRaw / 1000000).toFixed(2);
+  const watt = ((currentMa * parseFloat(voltageV || "0")) / 1000).toFixed(1);
+
   el.pwrStatus.textContent = chargeEnabled ? statusStr : "Charging paused";
   el.pwrType.textContent = typeStr;
   const sign = statusStr === "Charging" ? "+" : statusStr === "Discharging" ? "-" : "";
@@ -234,30 +285,43 @@ async function fetchTelemetry() {
   el.headerTemp.textContent = tempC + "°C";
   el.headerCharge.textContent = watt + "W";
   el.headerBatt.textContent = (capVal !== "" ? capVal : "--") + "%";
+
   el.chkBypassMaster.checked = appState.config.bypass_charging === true;
   el.chkBypassMaster.disabled = !chargeNodeSupported;
 
-  log(`Live: Temp ${tempC}°C | Net ${watt}W | Swap ${boundedPct}%` + (chargeNodeSupported ? "" : " | Charging control unsupported"));
+  log(`Live: ${tempC}°C | ${watt}W | Swap ${boundedPct}%` + (chargeNodeSupported ? "" : " | Charge toggle N/A"));
 }
 
 // Quick Actions
 el.btnRefresh.addEventListener("click", fetchTelemetry);
 
-el.btnCompact.addEventListener("click", async () => {
-  log("Running ZRAM compaction...");
-  await exec("echo 1 > /sys/block/zram0/compact");
-  await fetchTelemetry();
-  log("ZRAM compaction complete.");
-});
+el.btnCompact.addEventListener("click", () =>
+  withBusyButton(el.btnCompact, "Compacting...", async () => {
+    await execHelper("compact soft");
+    await fetchTelemetry();
+    log("ZRAM compaction complete.");
+  })
+);
 
-el.btnTrim.addEventListener("click", async () => {
-  log("Trimming inactive background apps...");
-  await exec("am kill-all");
-  await fetchTelemetry();
-  log("Inactive applications trimmed.");
-});
+if (el.btnReclaim) {
+  el.btnReclaim.addEventListener("click", () =>
+    withBusyButton(el.btnReclaim, "Reclaiming...", async () => {
+      await execHelper("compact hard");
+      await fetchTelemetry();
+      log("Deep reclaim & cache flush complete.");
+    })
+  );
+}
 
-// Master Bypass Toggle (node-aware: charging_enabled vs input_suspend)
+el.btnTrim.addEventListener("click", () =>
+  withBusyButton(el.btnTrim, "Trimming...", async () => {
+    await exec("am kill-all");
+    await fetchTelemetry();
+    log("Inactive cached applications trimmed.");
+  })
+);
+
+// Master Bypass Toggle
 el.chkBypassMaster.addEventListener("change", async (e) => {
   const bypass = e.target.checked;
   const probe = await exec(
@@ -267,26 +331,37 @@ el.chkBypassMaster.addEventListener("change", async (e) => {
   );
   const node = probe.stdout.trim();
   if (node === "none") {
-    log("Charging control unsupported by this kernel, nothing to toggle.");
+    log("Charging control unsupported by kernel.");
     e.target.checked = false;
     return;
   }
   const val = node === "charging_enabled" ? (bypass ? "0" : "1") : (bypass ? "1" : "0");
-  log(`Toggling charging via ${node}...`);
-  await exec(`echo ${val} > /sys/class/power_supply/battery/${node}`);
+  const wres = await exec(`echo ${val} > /sys/class/power_supply/battery/${node}`);
+  if (wres.errno !== 0) {
+    log("Failed updating charging node.");
+    e.target.checked = !bypass;
+    return;
+  }
   appState.config.bypass_charging = bypass;
-  saveConfig();
+  await saveConfig();
   await fetchTelemetry();
 });
 
-// Thermal Guard Toggle
 el.chkThermalGuard.addEventListener("change", async (e) => {
   appState.config.thermal_guard = e.target.checked;
-  await saveConfig();
-  log("Thermal guard " + (e.target.checked ? "enabled" : "disabled") + ".");
+  if (await saveConfig()) {
+    log("Thermal guard " + (e.target.checked ? "enabled" : "disabled") + ".");
+  }
 });
 
 // App Manager
+function updateRuleSummary() {
+  if (!el.appCounts) return;
+  const g = (appState.config.auto_bypass_games || []).length;
+  const s = (appState.config.heavy_swap_apps || []).length;
+  el.appCounts.textContent = `${g} game · ${s} swap`;
+}
+
 async function loadPackages() {
   log("Scanning installed user packages...");
   const res = await exec("pm list packages -3 | cut -d: -f2 | sort");
@@ -295,34 +370,37 @@ async function loadPackages() {
     renderAppList();
     log(`Loaded ${appState.installedPackages.length} packages.`);
   } else {
+    el.appListContainer.innerHTML = '<div class="empty-state">Unable to list packages from root bridge.</div>';
     log("Failed loading packages: " + res.stderr);
   }
 }
 
 function renderAppList() {
+  updateRuleSummary();
   const query = (el.appSearch.value || "").toLowerCase().trim();
   const list = appState.installedPackages.filter((pkg) => pkg.toLowerCase().includes(query));
 
   if (list.length === 0) {
-    el.appListContainer.innerHTML = '<div class="empty-state">No packages match this filter. Adjust the search or save current rules.</div>';
+    el.appListContainer.innerHTML = '<div class="empty-state">No packages match this filter. Adjust the query to manage rules.</div>';
     return;
   }
 
   let html = "";
   list.forEach((pkg) => {
+    const safePkg = escapeAttr(pkg);
     const isGame = (appState.config.auto_bypass_games || []).includes(pkg);
     const isSwap = (appState.config.heavy_swap_apps || []).includes(pkg);
 
     html += `
-      <div class="app-row" data-pkg="${pkg}">
+      <div class="app-row" data-pkg="${safePkg}">
         <div class="app-meta">
-          <span class="app-pkg">${pkg}</span>
+          <span class="app-pkg">${safePkg}</span>
         </div>
         <div class="app-tags">
-          <button class="tag-btn ${isGame ? "active-game" : ""}" data-action="toggle-game" data-pkg="${pkg}">
+          <button type="button" class="tag-btn ${isGame ? "active-game" : ""}" aria-pressed="${isGame}" data-action="toggle-game" data-pkg="${safePkg}">
             ${isGame ? "Game on" : "Game"}
           </button>
-          <button class="tag-btn ${isSwap ? "active-swap" : ""}" data-action="toggle-swap" data-pkg="${pkg}">
+          <button type="button" class="tag-btn ${isSwap ? "active-swap" : ""}" aria-pressed="${isSwap}" data-action="toggle-swap" data-pkg="${safePkg}">
             ${isSwap ? "Swap on" : "Swap"}
           </button>
         </div>
@@ -339,29 +417,24 @@ el.appListContainer.addEventListener("click", (e) => {
   if (!btn) return;
   const action = btn.getAttribute("data-action");
   const pkg = btn.getAttribute("data-pkg");
+  if (!pkg) return;
 
-  if (action === "toggle-game") {
-    const idx = appState.config.auto_bypass_games.indexOf(pkg);
-    if (idx >= 0) {
-      appState.config.auto_bypass_games.splice(idx, 1);
-    } else {
-      appState.config.auto_bypass_games.push(pkg);
-    }
-  } else if (action === "toggle-swap") {
-    const idx = appState.config.heavy_swap_apps.indexOf(pkg);
-    if (idx >= 0) {
-      appState.config.heavy_swap_apps.splice(idx, 1);
-    } else {
-      appState.config.heavy_swap_apps.push(pkg);
-    }
-  }
+  const targetKey = action === "toggle-game" ? "auto_bypass_games" : "heavy_swap_apps";
+  const arr = appState.config[targetKey] || [];
+  const idx = arr.indexOf(pkg);
+  if (idx >= 0) arr.splice(idx, 1);
+  else arr.push(pkg);
+  appState.config[targetKey] = arr;
   renderAppList();
 });
 
-el.btnSaveApps.addEventListener("click", async () => {
-  await saveConfig();
-  log("App priority rules saved to /data/adb/kairos_config.json");
-});
+el.btnSaveApps.addEventListener("click", () =>
+  withBusyButton(el.btnSaveApps, "Saving...", async () => {
+    if (await saveConfig()) {
+      log("Per-app rules saved to /data/adb/kairos_config.json.");
+    }
+  })
+);
 
 // Config Persistence
 async function loadConfig() {
@@ -369,39 +442,63 @@ async function loadConfig() {
   if (res.errno === 0 && res.stdout.trim()) {
     try {
       appState.config = Object.assign({}, appState.config, JSON.parse(res.stdout));
-    } catch (_) {}
+    } catch (_) {
+      log("Config parse warning; using safe defaults.");
+    }
   }
   syncTunablesUI();
+  updateRuleSummary();
 }
 
 async function saveConfig() {
   const jsonStr = JSON.stringify(appState.config, null, 2);
-  const cmd = `cat << 'EOF' > ${CONFIG_PATH}\n${jsonStr}\nEOF\nchmod 644 ${CONFIG_PATH}`;
-  await exec(cmd);
+  const cmd = `cat << 'KAIROS_CFG_EOF' > ${CONFIG_PATH}\n${jsonStr}\nKAIROS_CFG_EOF\nchmod 644 ${CONFIG_PATH}`;
+  const res = await exec(cmd);
+  if (res.errno !== 0) {
+    log("Save config failed: " + (res.stderr || `errno ${res.errno}`));
+    return false;
+  }
+  return true;
 }
 
 // Tunables Controller
-function setupPillGroup(groupEl, configKey) {
+function setupPillGroup(groupEl, configKey, onPick) {
+  if (!groupEl) return;
   groupEl.addEventListener("click", (e) => {
     const btn = e.target.closest(".pill-btn");
     if (!btn) return;
-    groupEl.querySelectorAll(".pill-btn").forEach((b) => b.classList.remove("active"));
+    groupEl.querySelectorAll(".pill-btn").forEach((b) => {
+      b.classList.remove("active");
+      b.setAttribute("aria-pressed", "false");
+    });
     btn.classList.add("active");
+    btn.setAttribute("aria-pressed", "true");
     const val = btn.getAttribute("data-val");
     appState.config[configKey] = isNaN(Number(val)) ? val : Number(val);
+    if (onPick) onPick(appState.config[configKey]);
   });
 }
 
-setupPillGroup(el.groupSwappiness, "swappiness");
+setupPillGroup(el.groupCompAlgo, "comp_algorithm");
 setupPillGroup(el.groupZramSize, "zram_size");
+setupPillGroup(el.groupWbSize, "wb_size_mb");
+setupPillGroup(el.groupSwappiness, "swappiness");
+setupPillGroup(el.groupWmScale, "watermark_scale");
+setupPillGroup(el.groupVfsPressure, "vfs_cache_pressure");
 setupPillGroup(el.groupBgLimit, "bg_limit");
+
+if (el.chkZramWb) {
+  el.chkZramWb.addEventListener("change", (e) => {
+    appState.config.zram_writeback = e.target.checked;
+    if (el.groupWbSizeWrap) el.groupWbSizeWrap.hidden = !e.target.checked;
+  });
+}
+
 if (el.groupChargeLimit) {
-  setupPillGroup(el.groupChargeLimit, "charge_limit");
-  // No Apply button on the Status tab, so persist immediately; service.sh picks it up within 4s.
-  el.groupChargeLimit.addEventListener("click", async (e) => {
-    if (!e.target.closest(".pill-btn")) return;
-    await saveConfig();
-    log(`Charge limit set to ${appState.config.charge_limit}%.`);
+  setupPillGroup(el.groupChargeLimit, "charge_limit", async (val) => {
+    if (await saveConfig()) {
+      log(`Charge limit set to ${val}%.`);
+    }
   });
 }
 
@@ -409,55 +506,55 @@ function syncTunablesUI() {
   const selectPill = (groupEl, val) => {
     if (!groupEl) return;
     groupEl.querySelectorAll(".pill-btn").forEach((b) => {
-      if (b.getAttribute("data-val") == String(val)) {
-        b.classList.add("active");
-      } else {
-        b.classList.remove("active");
-      }
+      const match = b.getAttribute("data-val") == String(val);
+      b.classList.toggle("active", match);
+      b.setAttribute("aria-pressed", match ? "true" : "false");
     });
   };
+  selectPill(el.groupCompAlgo, appState.config.comp_algorithm || "zstd");
+  selectPill(el.groupZramSize, appState.config.zram_size || "3072M");
+  selectPill(el.groupWbSize, appState.config.wb_size_mb || 1024);
   selectPill(el.groupSwappiness, appState.config.swappiness);
-  selectPill(el.groupZramSize, appState.config.zram_size);
-  selectPill(el.groupBgLimit, appState.config.bg_limit);
+  selectPill(el.groupWmScale, appState.config.watermark_scale || 15);
+  selectPill(el.groupVfsPressure, appState.config.vfs_cache_pressure || 100);
+  selectPill(el.groupBgLimit, appState.config.bg_limit || 48);
   selectPill(el.groupChargeLimit, appState.config.charge_limit || 100);
   if (el.chkThermalGuard) el.chkThermalGuard.checked = appState.config.thermal_guard === true;
+  if (el.chkZramWb) {
+    el.chkZramWb.checked = appState.config.zram_writeback === true;
+    if (el.groupWbSizeWrap) el.groupWbSizeWrap.hidden = !el.chkZramWb.checked;
+  }
 }
 
-el.btnApplyTunables.addEventListener("click", async () => {
-  log("Applying kernel tunables...");
-  await saveConfig();
+el.btnApplyTunables.addEventListener("click", () =>
+  withBusyButton(el.btnApplyTunables, "Applying...", async () => {
+    if (!(await saveConfig())) return;
 
-  // 1. Swappiness
-  const sw = appState.config.swappiness || 100;
-  await exec(`chmod 666 /proc/sys/vm/swappiness 2>/dev/null; echo ${sw} > /proc/sys/vm/swappiness; chmod 444 /proc/sys/vm/swappiness 2>/dev/null`);
+    const c = appState.config;
+    const limit = c.bg_limit || 48;
+    const wbFlag = c.zram_writeback ? 1 : 0;
 
-  // 2. LMKD bg apps limit
-  const limit = appState.config.bg_limit || 32;
-  await exec(`resetprop ro.sys.fw.bg_apps_limit ${limit}; device_config put activity_manager max_cached_processes ${limit}`);
-
-  // 3. ZRAM disk size if changed
-  const zsize = appState.config.zram_size || "4000M";
-  const currDisk = (await exec("cat /sys/block/zram0/disksize")).stdout.trim();
-  const targetBytes = zsize.includes("M") ? parseInt(zsize) * 1048576 : parseInt(zsize);
-
-  if (Math.abs(parseInt(currDisk) - targetBytes) > 50000000) {
-    log(`Resizing ZRAM to ${zsize}...`);
-    const r = await exec(
-      `swapoff /dev/block/zram0 2>/dev/null; ` +
-      `echo ${zsize} > /sys/block/zram0/disksize 2>/dev/null || ` +
-      `{ echo 1 > /sys/block/zram0/reset && echo ${zsize} > /sys/block/zram0/disksize; }; ` +
-      `mkswap /dev/block/zram0 2>/dev/null && swapon /dev/block/zram0 -p -2 2>/dev/null; ` +
-      `grep -q zram0 /proc/swaps && echo ZRAM_OK || echo ZRAM_FAIL`
+    await exec(
+      `resetprop ro.sys.fw.bg_apps_limit ${limit}; ` +
+      `device_config put activity_manager max_cached_processes ${limit} 2>/dev/null`
     );
-    if ((r.stdout || "").includes("ZRAM_FAIL")) {
-      log("ZRAM resize FAILED, swap is OFF. Fix size or reboot.");
-      return;
-    }
-  }
 
-  await fetchTelemetry();
-  log("Kernel memory tunables applied successfully.");
-});
+    const zres = await execHelper(
+      `apply "${c.zram_size || "3072M"}" "${c.comp_algorithm || "zstd"}" ` +
+      `${wbFlag} ${c.wb_size_mb || 1024} ${c.swappiness || 100} ` +
+      `${c.vfs_cache_pressure || 100} ${c.watermark_scale || 15} ${c.compaction_proactiveness || 20}`
+    );
+
+    await fetchTelemetry();
+    if (zres.stdout.includes("ZRAM_FAIL") || zres.stdout.includes("DISKSIZE_FAIL")) {
+      log("ZRAM apply failed; check log or reduce size.");
+    } else if (zres.stdout.includes("WB_UNSUPPORTED")) {
+      log("Tunables saved (writeback unsupported by this kernel).");
+    } else {
+      log("Kernel tunables applied & persisted.");
+    }
+  })
+);
 
 // Display Manager
 async function fetchDisplayInfo() {
@@ -469,28 +566,22 @@ async function fetchDisplayInfo() {
 
   const physSizeMatch = sizeRes.stdout.match(/Physical size:\s*(\d+)x(\d+)/i);
   if (physSizeMatch) {
-    physW = parseInt(physSizeMatch[1]);
-    physH = parseInt(physSizeMatch[2]);
+    physW = parseInt(physSizeMatch[1], 10);
+    physH = parseInt(physSizeMatch[2], 10);
   }
   const overSizeMatch = sizeRes.stdout.match(/Override size:\s*(\d+)x(\d+)/i);
   if (overSizeMatch) {
-    currW = parseInt(overSizeMatch[1]);
-    currH = parseInt(overSizeMatch[2]);
+    currW = parseInt(overSizeMatch[1], 10);
+    currH = parseInt(overSizeMatch[2], 10);
   } else {
     currW = physW;
     currH = physH;
   }
 
   const physDensMatch = densRes.stdout.match(/Physical density:\s*(\d+)/i);
-  if (physDensMatch) {
-    physDpi = parseInt(physDensMatch[1]);
-  }
+  if (physDensMatch) physDpi = parseInt(physDensMatch[1], 10);
   const overDensMatch = densRes.stdout.match(/Override density:\s*(\d+)/i);
-  if (overDensMatch) {
-    currDpi = parseInt(overDensMatch[1]);
-  } else {
-    currDpi = physDpi;
-  }
+  currDpi = overDensMatch ? parseInt(overDensMatch[1], 10) : physDpi;
 
   appState.display.physWidth = physW;
   appState.display.physHeight = physH;
@@ -514,35 +605,37 @@ if (el.groupDisplayScale) {
 }
 
 if (el.btnApplyDisplay) {
-  el.btnApplyDisplay.addEventListener("click", async () => {
-    const scale = appState.display.selectedScale;
-    log(`Applying display scale ${scale * 100}%...`);
-    if (Math.abs(scale - 1.0) < 0.01) {
-      await exec("wm size reset && wm density reset");
-    } else {
-      const targetW = Math.round(appState.display.physWidth * scale);
-      const targetH = Math.round(appState.display.physHeight * scale);
-      const targetDpi = Math.round(appState.display.physDpi * scale);
-      await exec(`wm size ${targetW}x${targetH} && wm density ${targetDpi}`);
-    }
-    await fetchDisplayInfo();
-    log("Display resolution scaled successfully.");
-  });
+  el.btnApplyDisplay.addEventListener("click", () =>
+    withBusyButton(el.btnApplyDisplay, "Scaling...", async () => {
+      const scale = appState.display.selectedScale;
+      if (Math.abs(scale - 1.0) < 0.01) {
+        await exec("wm size reset && wm density reset");
+      } else {
+        const targetW = Math.round(appState.display.physWidth * scale);
+        const targetH = Math.round(appState.display.physHeight * scale);
+        const targetDpi = Math.round(appState.display.physDpi * scale);
+        await exec(`wm size ${targetW}x${targetH} && wm density ${targetDpi}`);
+      }
+      await fetchDisplayInfo();
+      log(`Display scale applied (${Math.round(scale * 100)}%).`);
+    })
+  );
 }
 
 if (el.btnResetDisplay) {
-  el.btnResetDisplay.addEventListener("click", async () => {
-    log("Resetting display to native resolution...");
-    await exec("wm size reset && wm density reset");
-    if (el.groupDisplayScale) {
-      el.groupDisplayScale.querySelectorAll(".pill-btn").forEach((b) => {
-        b.classList.toggle("active", b.getAttribute("data-scale") === "1.0");
-      });
-    }
-    appState.display.selectedScale = 1.0;
-    await fetchDisplayInfo();
-    log("Display reset to native 100%.");
-  });
+  el.btnResetDisplay.addEventListener("click", () =>
+    withBusyButton(el.btnResetDisplay, "Resetting...", async () => {
+      await exec("wm size reset && wm density reset");
+      if (el.groupDisplayScale) {
+        el.groupDisplayScale.querySelectorAll(".pill-btn").forEach((b) => {
+          b.classList.toggle("active", b.getAttribute("data-scale") === "1.0");
+        });
+      }
+      appState.display.selectedScale = 1.0;
+      await fetchDisplayInfo();
+      log("Display reset to native 100%.");
+    })
+  );
 }
 
 // Boot Initializer
@@ -559,7 +652,7 @@ async function pollTelemetry() {
 
 async function init() {
   if (!hasBridge()) {
-    log("KernelSU bridge not found. Open this page from the KernelSU manager.");
+    log("KernelSU bridge not found. Open inside KernelSU Manager.");
     return;
   }
   await loadConfig();

@@ -3,4 +3,4 @@ name=fgetpriority
 version=v0.0.5-4.19-fog
 versionCode=5
 author=xx, frknkrc44
-description=A kernel module to hide some syscall results (non-GKI 4.19 build for fog/cirno, personal)
+description=[Inactive] A kernel module to hide some syscall results (non-GKI 4.19 build for fog/cirno, personal)

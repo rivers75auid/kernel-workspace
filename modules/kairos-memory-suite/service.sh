@@ -92,6 +92,17 @@ if command -v device_config >/dev/null 2>&1; then
   fi
   if [ "$(getprop ro.lmk.use_psi)" = "true" ]; then
     device_config put lmkd_native use_minfree_levels false 2>/dev/null
+    device_config put lmkd_native kill_heaviest_task false 2>/dev/null
+    device_config put lmkd_native kill_timeout_ms 200 2>/dev/null
+    device_config put lmkd_native psi_partial_stall_ms 250 2>/dev/null
+    device_config put lmkd_native psi_complete_stall_ms 700 2>/dev/null
+    device_config put lmkd_native thrashing_limit 100 2>/dev/null
+    device_config put lmkd_native thrashing_limit_decay 10 2>/dev/null
+    device_config put lmkd_native swap_free_low_percentage 1 2>/dev/null
+    device_config put lmkd_native swap_util_max 100 2>/dev/null
+    device_config put lmkd_native lowmem_min_oom_score 1001 2>/dev/null
+    device_config put lmkd_native pressure_after_kill_min_score 800 2>/dev/null
+    /system/bin/lmkd --reinit >/dev/null 2>&1 || { stop lmkd; sleep 1; start lmkd; } >/dev/null 2>&1
   fi
 fi
 if [ "$USAP_POOL" = "true" ] || [ "$USAP_POOL" = "false" ]; then

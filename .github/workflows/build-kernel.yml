@@ -185,6 +185,9 @@ jobs:
           echo "===> Fixing first-plug QC misclassification (delayed APSD rerun)..."
           python3 "$GITHUB_WORKSPACE/scripts/patch-charger-apsd.py"
 
+          echo "===> Restoring /system/bin/lmkd --reinit (removing upstream is_lmkd_reinit execve block)..."
+          python3 "$GITHUB_WORKSPACE/scripts/patch-lmkd-reinit.py"
+
 
           if [ "$OPT_POTATO" = "true" ]; then
             echo "===> Enabling Potato Tuning Suite (WALT/Schedtune, CFQ/BFQ, MGLRU, KSM, ZRAM DEDUP, Zero-Debloat)..."
